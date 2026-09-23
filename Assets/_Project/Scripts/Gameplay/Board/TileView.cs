@@ -2,48 +2,39 @@ using UnityEngine;
 
 namespace GameMatch3.Gameplay.Board
 {
+    // Hien thi mot Tile; du lieu ID va toa do nam trong model Tile.
     [RequireComponent(typeof(SpriteRenderer))]
     public sealed class TileView : MonoBehaviour
     {
         private SpriteRenderer spriteRenderer;
 
-        public Vector2Int Coordinate { get; private set; }
-        public TileColor ColorType { get; private set; }
+        public Tile Tile { get; private set; }
+        public int InstanceId => Tile.InstanceId;
+        public TileTypeId TypeId => Tile.TypeId;
+        public Vector2Int Coordinate => Tile.Coordinate;
 
-        public void Initialize(Vector2Int coordinate, TileColor colorType, Sprite sprite)
+        public void Initialize(Tile tile, TilePoolEntry definition, Sprite fallbackSprite)
         {
-            Coordinate = coordinate;
-            ColorType = colorType;
+            Tile = tile;
 
             spriteRenderer = GetComponent<SpriteRenderer>();
-            spriteRenderer.sprite = sprite;
-            spriteRenderer.color = ToUnityColor(colorType);
+            bool usesPrototypeVisual = definition.Sprite == null;
+            spriteRenderer.sprite = usesPrototypeVisual ? fallbackSprite : definition.Sprite;
+            spriteRenderer.color = usesPrototypeVisual ? definition.PrototypeColor : Color.white;
             spriteRenderer.sortingOrder = 1;
 
-            transform.name = $"Tile_{coordinate.x}_{coordinate.y}_{colorType}";
+            UpdateObjectName();
         }
 
         public void SetCoordinate(Vector2Int coordinate)
         {
-            Coordinate = coordinate;
-            transform.name = $"Tile_{coordinate.x}_{coordinate.y}_{ColorType}";
+            Tile.SetCoordinate(coordinate);
+            UpdateObjectName();
         }
 
-        private static Color ToUnityColor(TileColor colorType)
+        private void UpdateObjectName()
         {
-            switch (colorType)
-            {
-                case TileColor.Red:
-                    return new Color(0.91f, 0.20f, 0.22f);
-                case TileColor.Yellow:
-                    return new Color(1.00f, 0.78f, 0.12f);
-                case TileColor.Green:
-                    return new Color(0.20f, 0.72f, 0.32f);
-                case TileColor.Blue:
-                    return new Color(0.16f, 0.48f, 0.90f);
-                default:
-                    return Color.white;
-            }
+            transform.name = $"Tile_{TypeId}_I{InstanceId:000000}_{Coordinate.x}_{Coordinate.y}";
         }
     }
 }

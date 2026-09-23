@@ -9,14 +9,6 @@ namespace GameMatch3.Gameplay.Board
     [ExecuteAlways]
     public sealed class BoardController : MonoBehaviour
     {
-        private static readonly TileColor[] DefaultTilePool =
-        {
-            TileColor.Red,
-            TileColor.Yellow,
-            TileColor.Green,
-            TileColor.Blue
-        };
-
         // Cấu hình kích thước bàn chơi, mỗi cell và tốc độ các hiệu ứng qua Inspector.
         [Header("Board Size")]
         [SerializeField, Range(6, 8)] private int width = 6;
@@ -34,6 +26,9 @@ namespace GameMatch3.Gameplay.Board
         [SerializeField, Min(0f)] private float leftHudReservedWidth = 3f;
         [SerializeField] private int previewSeed = 12345;
 
+        [Header("Tile Pool")]
+        [SerializeField] private TilePool tilePool = new TilePool();
+
         // Mảng logic: tiles[x, y] chứa tile tại tọa độ tương ứng, null nghĩa là ô trống.
         private TileView[,] tiles;
         private Sprite squareSprite;
@@ -44,6 +39,8 @@ namespace GameMatch3.Gameplay.Board
         private bool isSwapping;
         private float lastCameraAspect = -1f;
         private System.Random random;
+        private readonly List<TilePoolEntry> activeTilePool = new List<TilePoolEntry>(10);
+        private int nextTileInstanceId;
 
         public bool IsSwapping => isSwapping;
         public int Width => width;
@@ -54,6 +51,16 @@ namespace GameMatch3.Gameplay.Board
         {
             // Dựng lại board mỗi khi Scene hoặc component được nạp.
             RebuildBoard();
+        }
+
+        private void OnValidate()
+        {
+            if (tilePool == null)
+            {
+                tilePool = new TilePool();
+            }
+
+            tilePool.EnsureCompleteCatalog();
         }
 
         private void Update()
@@ -132,6 +139,13 @@ namespace GameMatch3.Gameplay.Board
             width = Mathf.Clamp(width, 6, 8);
             height = Mathf.Clamp(height, 6, 8);
             cellSize = Mathf.Max(0.1f, cellSize);
+            if (tilePool == null)
+            {
+                tilePool = new TilePool();
+            }
+
+            tilePool.GetActiveEntries(activeTilePool);
+            nextTileInstanceId = 1;
             tiles = new TileView[width, height];
             squareSprite = CreateSquareSprite();
             ConfigureCamera();
@@ -150,48 +164,46 @@ namespace GameMatch3.Gameplay.Board
                 for (int y = 0; y < height; y++)
                 {
                     Vector2Int coordinate = new Vector2Int(x, y);
-                    TileColor randomColor = GetStartingColor(random, x, y);
-                    tiles[x, y] = CreateTile(coordinate, randomColor, GetWorldPosition(coordinate));
+                    TilePoolEntry definition = GetStartingTileDefinition(random, x, y);
+                    tiles[x, y] = CreateTile(coordinate, definition, GetWorldPosition(coordinate));
                 }
             }
         }
 
-        private TileColor GetStartingColor(System.Random random, int x, int y)
+        private TilePoolEntry GetStartingTileDefinition(System.Random random, int x, int y)
         {
-            // Loại các màu có thể tạo chuỗi 3 ngay lúc khởi tạo board.
+            // Loai cac Type ID co the tao chuoi 3 ngay luc khoi tao board.
             // Nhờ vậy match chỉ bắt đầu sau một nước swap của người chơi.
-            List<TileColor> candidates = new List<TileColor>(GetTilePool());
+            List<TilePoolEntry> candidates = new List<TilePoolEntry>(activeTilePool);
 
             if (x >= 2
                 && tiles[x - 1, y] != null
                 && tiles[x - 2, y] != null
-                && tiles[x - 1, y].ColorType == tiles[x - 2, y].ColorType)
+                && tiles[x - 1, y].TypeId == tiles[x - 2, y].TypeId)
             {
-                candidates.RemoveAll(color => color == tiles[x - 1, y].ColorType);
+                TileTypeId blockedTypeId = tiles[x - 1, y].TypeId;
+                candidates.RemoveAll(entry => entry.TypeId == blockedTypeId);
             }
 
             if (y >= 2
                 && tiles[x, y - 1] != null
                 && tiles[x, y - 2] != null
-                && tiles[x, y - 1].ColorType == tiles[x, y - 2].ColorType)
+                && tiles[x, y - 1].TypeId == tiles[x, y - 2].TypeId)
             {
-                candidates.RemoveAll(color => color == tiles[x, y - 1].ColorType);
+                TileTypeId blockedTypeId = tiles[x, y - 1].TypeId;
+                candidates.RemoveAll(entry => entry.TypeId == blockedTypeId);
             }
 
             // Pool quá nhỏ có thể không cho phép tạo board không match; vẫn tạo tile để board đầy.
-            TileColor[] pool = GetTilePool();
             return candidates.Count > 0
-                ? candidates[random.Next(candidates.Count)]
-                : pool[random.Next(pool.Length)];
+                ? TilePool.PickRandom(random, candidates)
+                : TilePool.PickRandom(random, activeTilePool);
         }
 
-        private TileColor[] GetTilePool()
-        {
-            // Sau này Level sẽ cung cấp pool riêng; hiện dùng đều bốn màu có sẵn.
-            return DefaultTilePool;
-        }
-
-        private TileView CreateTile(Vector2Int coordinate, TileColor color, Vector3 worldPosition)
+        private TileView CreateTile(
+            Vector2Int coordinate,
+            TilePoolEntry definition,
+            Vector3 worldPosition)
         {
             GameObject tileObject = new GameObject();
             tileObject.transform.SetParent(transform, false);
@@ -200,7 +212,8 @@ namespace GameMatch3.Gameplay.Board
             tileObject.transform.localScale = Vector3.one * (cellSize * tileScale);
 
             TileView tile = tileObject.AddComponent<TileView>();
-            tile.Initialize(coordinate, color, squareSprite);
+            Tile tileData = new Tile(nextTileInstanceId++, definition.TypeId, coordinate);
+            tile.Initialize(tileData, definition, squareSprite);
             return tile;
         }
 
@@ -456,8 +469,6 @@ namespace GameMatch3.Gameplay.Board
         {
             // Sau gravity, ô trống của mỗi cột nằm liên tiếp ở phía trên.
             List<FallMove> moves = new List<FallMove>();
-            TileColor[] pool = GetTilePool();
-
             for (int x = 0; x < width; x++)
             {
                 int firstEmptyY = 0;
@@ -472,8 +483,8 @@ namespace GameMatch3.Gameplay.Board
                     int spawnY = height + y - firstEmptyY;
                     Vector3 spawnPosition = GetWorldPosition(new Vector2Int(x, spawnY));
                     Vector3 destination = GetWorldPosition(coordinate);
-                    TileColor color = pool[random.Next(pool.Length)];
-                    TileView tile = CreateTile(coordinate, color, spawnPosition);
+                    TilePoolEntry definition = TilePool.PickRandom(random, activeTilePool);
+                    TileView tile = CreateTile(coordinate, definition, spawnPosition);
                     tiles[x, y] = tile;
                     moves.Add(new FallMove(tile, spawnPosition, destination, spawnY - y));
                 }

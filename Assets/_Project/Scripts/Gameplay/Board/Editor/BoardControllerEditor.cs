@@ -3,11 +3,13 @@ using UnityEngine;
 
 namespace GameMatch3.Gameplay.Board.Editor
 {
+    // Bổ sung nút thao tác preview và giải thích cấu hình ngay trong Inspector của Unity.
     [CustomEditor(typeof(BoardController))]
     public sealed class BoardControllerEditor : UnityEditor.Editor
     {
         public override void OnInspectorGUI()
         {
+            // Giữ toàn bộ trường cấu hình mặc định của BoardController.
             DrawDefaultInspector();
 
             EditorGUILayout.Space();
@@ -15,11 +17,13 @@ namespace GameMatch3.Gameplay.Board.Editor
                 "Board hỗ trợ từ 6 x 6 đến 8 x 8. Cell Size mặc định là 1. " +
                 "Camera tự căn để luôn nhìn trọn board và chừa phần bên trái cho HUD tương lai. " +
                 "Preview hiển thị ngay trong Scene. " +
-                "Các tile con được tạo tự động và không lưu vào scene.",
+                "Tile Pool luôn có 10 Type ID; bật loại dùng cho level, chỉnh Spawn Weight, " +
+                "màu prototype và sprite 2D tại đây. Các tile con được tạo tự động và không lưu vào scene.",
                 MessageType.Info);
 
             using (new EditorGUI.DisabledScope(Application.isPlaying))
             {
+                // Không cho dựng lại preview lúc Play vì board đang chạy gameplay.
                 if (GUILayout.Button("Rebuild Board Preview"))
                 {
                     ((BoardController)target).RebuildPreview();

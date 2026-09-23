@@ -2,12 +2,16 @@ using System.Collections.Generic;
 
 namespace GameMatch3.Gameplay.Board
 {
+    // Thu thap tat ca tile thuoc chuoi tu 3 tile cung Type ID tro len.
+    // Lớp này chỉ tìm match, không xóa tile hay thay đổi board.
     public static class MatchFinder
     {
         public static HashSet<TileView> FindAll(TileView[,] tiles, int width, int height)
         {
+            // HashSet tránh xử lý trùng tile nằm ở giao điểm của match ngang và dọc.
             HashSet<TileView> matches = new HashSet<TileView>();
 
+            // Quét từng hàng; runStart là vị trí bắt đầu chuỗi màu hiện tại.
             for (int y = 0; y < height; y++)
             {
                 int runStart = 0;
@@ -16,7 +20,7 @@ namespace GameMatch3.Gameplay.Board
                     bool continuesRun = x < width
                         && tiles[x, y] != null
                         && tiles[runStart, y] != null
-                        && tiles[x, y].ColorType == tiles[runStart, y].ColorType;
+                        && tiles[x, y].TypeId == tiles[runStart, y].TypeId;
 
                     if (continuesRun)
                     {
@@ -35,6 +39,7 @@ namespace GameMatch3.Gameplay.Board
                 }
             }
 
+            // Quét từng cột với cùng quy tắc; ô trống luôn ngắt chuỗi.
             for (int x = 0; x < width; x++)
             {
                 int runStart = 0;
@@ -43,7 +48,7 @@ namespace GameMatch3.Gameplay.Board
                     bool continuesRun = y < height
                         && tiles[x, y] != null
                         && tiles[x, runStart] != null
-                        && tiles[x, y].ColorType == tiles[x, runStart].ColorType;
+                        && tiles[x, y].TypeId == tiles[x, runStart].TypeId;
 
                     if (continuesRun)
                     {
