@@ -33,6 +33,9 @@ namespace GameMatch3.Gameplay.Board
         // Mảng logic: tiles[x, y] chứa tile tại tọa độ tương ứng, null nghĩa là ô trống.
         private TileView[,] tiles;
         private Sprite squareSprite;
+        private Sprite ellipseSprite;
+        private Sprite pentagonSprite;
+        private Sprite hexagonSprite;
         private Camera boardCamera;
         private Vector2 pointerStartWorld;
         private Vector2Int pointerStartCell;
@@ -154,6 +157,9 @@ namespace GameMatch3.Gameplay.Board
             nextTileInstanceId = 1;
             tiles = new TileView[width, height];
             squareSprite = CreateSquareSprite();
+            ellipseSprite = CreateEllipseSprite();
+            pentagonSprite = CreatePolygonSprite(5);
+            hexagonSprite = CreatePolygonSprite(6);
             ConfigureCamera();
             CreateBoardBackground();
             PopulateBoard();
@@ -314,30 +320,46 @@ namespace GameMatch3.Gameplay.Board
 
         private IEnumerator ResolveSwapRoutine(Vector2Int first, Vector2Int second)
         {
-            // Khóa input trong cả quá trình xử lý để người chơi không sửa board giữa animation.
             isSwapping = true;
-
-            // Swap trước, sau đó tìm match trên trạng thái board mới.
             yield return AnimateSwap(first, second);
             SwapTileData(first, second);
 
-            HashSet<TileView> matches = MatchFinder.FindAll(tiles, width, height);
-            if (matches.Count == 0)
+            TileView movedTile = tiles[second.x, second.y];
+            TileView otherTile = tiles[first.x, first.y];
+            bool colorBombSwap = MoveFinder.IsColorBombNormalSwap(movedTile, otherTile);
+            MatchResult matches = MatchFinder.FindAll(tiles, width, height);
+            if (!colorBombSwap && !matches.HasMatches)
             {
-                // Nước đi không tạo match thì hoàn tác swap.
                 yield return AnimateSwap(first, second);
                 SwapTileData(first, second);
                 isSwapping = false;
                 yield break;
             }
 
-            while (matches.Count > 0)
+            if (colorBombSwap)
             {
-                // Xóa match, dồn tile xuống, lấp ô trống rồi kiểm tra cascade.
-                yield return ClearMatches(matches);
+                yield return ResolveColorBombSwap(movedTile, otherTile);
                 yield return ApplyGravity();
                 yield return RefillBoard();
                 matches = MatchFinder.FindAll(tiles, width, height);
+            }
+
+            bool isPlayerMatch = !colorBombSwap;
+            StripedDirection swapDirection = first.x != second.x
+                ? StripedDirection.Horizontal
+                : StripedDirection.Vertical;
+
+            while (matches.HasMatches)
+            {
+                yield return ResolveMatchStep(
+                    matches,
+                    isPlayerMatch ? (Vector2Int?)second : null,
+                    swapDirection,
+                    isPlayerMatch);
+                yield return ApplyGravity();
+                yield return RefillBoard();
+                matches = MatchFinder.FindAll(tiles, width, height);
+                isPlayerMatch = false;
             }
 
             if (CountCurrentValidMoves() == 0)
@@ -346,6 +368,278 @@ namespace GameMatch3.Gameplay.Board
             }
 
             isSwapping = false;
+        }
+
+        private IEnumerator ResolveColorBombSwap(TileView first, TileView second)
+        {
+            TileView bomb = first.SpecialType == SpecialObjectType.ColorBomb ? first : second;
+            TileView normal = bomb == first ? second : first;
+            HashSet<TileView> tilesToClear = new HashSet<TileView> { bomb };
+            for (int x = 0; x < width; x++)
+            {
+                for (int y = 0; y < height; y++)
+                {
+                    TileView tile = tiles[x, y];
+                    if (tile != null && tile.CanMatchByType && tile.TypeId == normal.TypeId)
+                    {
+                        tilesToClear.Add(tile);
+                    }
+                }
+            }
+
+            ExpandSpecialEffects(tilesToClear, null, normal.TypeId, out bool hasWrappedActivation);
+            yield return ClearMatches(tilesToClear, hasWrappedActivation);
+        }
+
+        private IEnumerator ResolveMatchStep(
+            MatchResult matchResult,
+            Vector2Int? preferredCoordinate,
+            StripedDirection playerStripedDirection,
+            bool isPlayerMatch)
+        {
+            List<SpecialCreation> creations = new List<SpecialCreation>();
+            HashSet<TileView> protectedHosts = new HashSet<TileView>();
+            foreach (MatchGroup group in matchResult.Groups)
+            {
+                if (group.CreatedSpecialType == SpecialObjectType.None)
+                {
+                    continue;
+                }
+
+                TileView host = ChooseSpecialHost(group, preferredCoordinate);
+                if (host == null)
+                {
+                    continue;
+                }
+
+                StripedDirection direction = group.CascadeStripedDirection;
+                if (group.CreatedSpecialType == SpecialObjectType.Striped)
+                {
+                    if (isPlayerMatch)
+                    {
+                        direction = playerStripedDirection;
+                    }
+                    else if (group.IsSquareOnlyStriped)
+                    {
+                        direction = random.Next(2) == 0
+                            ? StripedDirection.Horizontal
+                            : StripedDirection.Vertical;
+                    }
+                }
+
+                creations.Add(new SpecialCreation(host, group.CreatedSpecialType, direction));
+                protectedHosts.Add(host);
+            }
+
+            HashSet<TileView> tilesToClear = new HashSet<TileView>(matchResult.AllTiles);
+            tilesToClear.ExceptWith(protectedHosts);
+            ExpandSpecialEffects(tilesToClear, protectedHosts, null, out bool hasWrappedActivation);
+
+            foreach (SpecialCreation creation in creations)
+            {
+                creation.Host.SetSpecialObject(
+                    creation.SpecialType,
+                    creation.Direction,
+                    GetSpecialModelSprite(creation.SpecialType));
+            }
+
+            yield return ClearMatches(tilesToClear, hasWrappedActivation);
+        }
+
+        private TileView ChooseSpecialHost(MatchGroup group, Vector2Int? preferredCoordinate)
+        {
+            if (preferredCoordinate.HasValue)
+            {
+                foreach (TileView tile in group.Tiles)
+                {
+                    if (tile.Coordinate == preferredCoordinate.Value
+                        && tile.SpecialType == SpecialObjectType.None)
+                    {
+                        return tile;
+                    }
+                }
+            }
+
+            Vector2 center = Vector2.zero;
+            foreach (TileView tile in group.Tiles)
+            {
+                center += (Vector2)tile.Coordinate;
+            }
+
+            center /= group.Tiles.Count;
+            TileView selected = null;
+            float selectedDistance = float.MaxValue;
+            foreach (TileView tile in group.Tiles)
+            {
+                if (tile.SpecialType != SpecialObjectType.None)
+                {
+                    continue;
+                }
+
+                float distance = ((Vector2)tile.Coordinate - center).sqrMagnitude;
+                if (selected == null
+                    || tile.Coordinate.y < selected.Coordinate.y
+                    || (tile.Coordinate.y == selected.Coordinate.y && distance < selectedDistance))
+                {
+                    selected = tile;
+                    selectedDistance = distance;
+                }
+            }
+
+            return selected;
+        }
+
+        private void ExpandSpecialEffects(
+            HashSet<TileView> tilesToClear,
+            HashSet<TileView> protectedTiles,
+            TileTypeId? colorBombTarget,
+            out bool hasWrappedActivation)
+        {
+            Queue<TileView> pending = new Queue<TileView>();
+            HashSet<TileView> activated = new HashSet<TileView>();
+            hasWrappedActivation = false;
+            foreach (TileView tile in tilesToClear)
+            {
+                if (tile != null && tile.SpecialType != SpecialObjectType.None)
+                {
+                    pending.Enqueue(tile);
+                }
+            }
+
+            while (pending.Count > 0)
+            {
+                TileView special = pending.Dequeue();
+                if (!activated.Add(special))
+                {
+                    continue;
+                }
+
+                switch (special.SpecialType)
+                {
+                    case SpecialObjectType.Striped:
+                        AddStripedArea(special, tilesToClear, protectedTiles, pending, activated);
+                        break;
+                    case SpecialObjectType.Wrapped:
+                        hasWrappedActivation = true;
+                        // Hai vu no cung pham vi; xu ly hai lan de san sang cho blocker nhieu layer sau nay.
+                        AddWrappedArea(special, tilesToClear, protectedTiles, pending, activated);
+                        AddWrappedArea(special, tilesToClear, protectedTiles, pending, activated);
+                        break;
+                    case SpecialObjectType.ColorBomb:
+                        TileTypeId target = colorBombTarget ?? FindMostCommonTileType();
+                        AddColorBombArea(target, tilesToClear, protectedTiles, pending, activated);
+                        break;
+                }
+            }
+        }
+
+        private void AddStripedArea(
+            TileView special,
+            HashSet<TileView> clear,
+            HashSet<TileView> protectedTiles,
+            Queue<TileView> pending,
+            HashSet<TileView> activated)
+        {
+            if (special.StripedDirection == StripedDirection.Horizontal)
+            {
+                for (int x = 0; x < width; x++)
+                {
+                    AddEffectTile(tiles[x, special.Coordinate.y], clear, protectedTiles, pending, activated);
+                }
+            }
+            else
+            {
+                for (int y = 0; y < height; y++)
+                {
+                    AddEffectTile(tiles[special.Coordinate.x, y], clear, protectedTiles, pending, activated);
+                }
+            }
+        }
+
+        private void AddWrappedArea(
+            TileView special,
+            HashSet<TileView> clear,
+            HashSet<TileView> protectedTiles,
+            Queue<TileView> pending,
+            HashSet<TileView> activated)
+        {
+            for (int x = special.Coordinate.x - 1; x <= special.Coordinate.x + 1; x++)
+            {
+                for (int y = special.Coordinate.y - 1; y <= special.Coordinate.y + 1; y++)
+                {
+                    if (x >= 0 && x < width && y >= 0 && y < height)
+                    {
+                        AddEffectTile(tiles[x, y], clear, protectedTiles, pending, activated);
+                    }
+                }
+            }
+        }
+
+        private void AddColorBombArea(
+            TileTypeId target,
+            HashSet<TileView> clear,
+            HashSet<TileView> protectedTiles,
+            Queue<TileView> pending,
+            HashSet<TileView> activated)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                for (int y = 0; y < height; y++)
+                {
+                    TileView tile = tiles[x, y];
+                    if (tile != null && tile.CanMatchByType && tile.TypeId == target)
+                    {
+                        AddEffectTile(tile, clear, protectedTiles, pending, activated);
+                    }
+                }
+            }
+        }
+
+        private static void AddEffectTile(
+            TileView tile,
+            HashSet<TileView> clear,
+            HashSet<TileView> protectedTiles,
+            Queue<TileView> pending,
+            HashSet<TileView> activated)
+        {
+            if (tile == null || (protectedTiles != null && protectedTiles.Contains(tile)))
+            {
+                return;
+            }
+
+            clear.Add(tile);
+            if (tile.SpecialType != SpecialObjectType.None && !activated.Contains(tile))
+            {
+                pending.Enqueue(tile);
+            }
+        }
+
+        private TileTypeId FindMostCommonTileType()
+        {
+            Dictionary<TileTypeId, int> counts = new Dictionary<TileTypeId, int>();
+            TileTypeId selected = activeTilePool[0].TypeId;
+            int maximum = 0;
+            for (int x = 0; x < width; x++)
+            {
+                for (int y = 0; y < height; y++)
+                {
+                    TileView tile = tiles[x, y];
+                    if (tile == null || !tile.CanMatchByType)
+                    {
+                        continue;
+                    }
+
+                    int count = counts.TryGetValue(tile.TypeId, out int current) ? current + 1 : 1;
+                    counts[tile.TypeId] = count;
+                    if (count > maximum)
+                    {
+                        maximum = count;
+                        selected = tile.TypeId;
+                    }
+                }
+            }
+
+            return selected;
         }
 
         private IEnumerator ShuffleBoard()
@@ -542,7 +836,7 @@ namespace GameMatch3.Gameplay.Board
 
         private int CountCurrentValidMoves()
         {
-            return BoardAnalyzer.CountValidMoves(CreateCurrentTypeLayout());
+            return MoveFinder.CountValidMoves(tiles, width, height);
         }
 
         private TileTypeId[,] CreateCurrentTypeLayout()
@@ -669,7 +963,7 @@ namespace GameMatch3.Gameplay.Board
             }
         }
 
-        private IEnumerator ClearMatches(HashSet<TileView> matches)
+        private IEnumerator ClearMatches(HashSet<TileView> matches, bool hasWrappedActivation)
         {
             // Đánh dấu các ô đã xóa là trống trước khi chạy hiệu ứng thu nhỏ.
             foreach (TileView tile in matches)
@@ -678,6 +972,27 @@ namespace GameMatch3.Gameplay.Board
                 if (IsInside(coordinate) && tiles[coordinate.x, coordinate.y] == tile)
                 {
                     tiles[coordinate.x, coordinate.y] = null;
+                }
+            }
+
+            if (hasWrappedActivation)
+            {
+                float pulseElapsed = 0f;
+                float pulseDuration = clearDuration * 0.75f;
+                while (pulseElapsed < pulseDuration)
+                {
+                    pulseElapsed += Time.deltaTime;
+                    float pulse = Mathf.Sin(Mathf.Clamp01(pulseElapsed / pulseDuration) * Mathf.PI);
+                    foreach (TileView tile in matches)
+                    {
+                        if (tile != null)
+                        {
+                            tile.transform.localScale = Vector3.one
+                                * (cellSize * tileScale * (1f - pulse * 0.25f));
+                        }
+                    }
+
+                    yield return null;
                 }
             }
 
@@ -704,6 +1019,21 @@ namespace GameMatch3.Gameplay.Board
                 {
                     Destroy(tile.gameObject);
                 }
+            }
+        }
+
+        private Sprite GetSpecialModelSprite(SpecialObjectType specialType)
+        {
+            switch (specialType)
+            {
+                case SpecialObjectType.Striped:
+                    return ellipseSprite;
+                case SpecialObjectType.Wrapped:
+                    return pentagonSprite;
+                case SpecialObjectType.ColorBomb:
+                    return hexagonSprite;
+                default:
+                    return squareSprite;
             }
         }
 
@@ -855,6 +1185,23 @@ namespace GameMatch3.Gameplay.Board
             }
         }
 
+        private readonly struct SpecialCreation
+        {
+            public readonly TileView Host;
+            public readonly SpecialObjectType SpecialType;
+            public readonly StripedDirection Direction;
+
+            public SpecialCreation(
+                TileView host,
+                SpecialObjectType specialType,
+                StripedDirection direction)
+            {
+                Host = host;
+                SpecialType = specialType;
+                Direction = direction;
+            }
+        }
+
         private readonly struct FallMove
         {
             // Dữ liệu tạm phục vụ animation rơi; không phải dữ liệu save của game.
@@ -930,6 +1277,13 @@ namespace GameMatch3.Gameplay.Board
                     DestroyImmediate(squareSprite);
                 }
             }
+
+            DestroyGeneratedSprite(ellipseSprite);
+            DestroyGeneratedSprite(pentagonSprite);
+            DestroyGeneratedSprite(hexagonSprite);
+            ellipseSprite = null;
+            pentagonSprite = null;
+            hexagonSprite = null;
         }
 
         private static void SetEditorPreviewFlags(GameObject gameObject)
@@ -1022,6 +1376,112 @@ namespace GameMatch3.Gameplay.Board
                 new Rect(0f, 0f, Texture2D.whiteTexture.width, Texture2D.whiteTexture.height),
                 new Vector2(0.5f, 0.5f),
                 Texture2D.whiteTexture.width);
+        }
+
+        private static Sprite CreateEllipseSprite()
+        {
+            const int size = 64;
+            return CreateShapeSprite(size, (x, y) =>
+            {
+                float normalizedX = (x + 0.5f) / size * 2f - 1f;
+                float normalizedY = (y + 0.5f) / size * 2f - 1f;
+                return normalizedX * normalizedX / (0.90f * 0.90f)
+                    + normalizedY * normalizedY / (0.62f * 0.62f) <= 1f;
+            }, "Special_Ellipse");
+        }
+
+        private static Sprite CreatePolygonSprite(int sides)
+        {
+            const int size = 64;
+            Vector2[] vertices = new Vector2[sides];
+            for (int i = 0; i < sides; i++)
+            {
+                float angle = Mathf.PI * 0.5f + i * Mathf.PI * 2f / sides;
+                vertices[i] = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * 0.9f;
+            }
+
+            return CreateShapeSprite(size, (x, y) =>
+            {
+                Vector2 point = new Vector2(
+                    (x + 0.5f) / size * 2f - 1f,
+                    (y + 0.5f) / size * 2f - 1f);
+                return IsInsidePolygon(point, vertices);
+            }, $"Special_{sides}Sides");
+        }
+
+        private static Sprite CreateShapeSprite(
+            int size,
+            System.Func<int, int, bool> containsPixel,
+            string spriteName)
+        {
+            Texture2D texture = new Texture2D(size, size, TextureFormat.RGBA32, false)
+            {
+                name = $"{spriteName}_Texture",
+                filterMode = FilterMode.Bilinear,
+                wrapMode = TextureWrapMode.Clamp,
+                hideFlags = Application.isPlaying ? HideFlags.None : HideFlags.DontSaveInEditor
+            };
+
+            Color[] pixels = new Color[size * size];
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    pixels[y * size + x] = containsPixel(x, y) ? Color.white : Color.clear;
+                }
+            }
+
+            texture.SetPixels(pixels);
+            texture.Apply();
+            Sprite sprite = Sprite.Create(
+                texture,
+                new Rect(0f, 0f, size, size),
+                new Vector2(0.5f, 0.5f),
+                size);
+            sprite.name = spriteName;
+            sprite.hideFlags = Application.isPlaying ? HideFlags.None : HideFlags.DontSaveInEditor;
+            return sprite;
+        }
+
+        private static bool IsInsidePolygon(Vector2 point, Vector2[] vertices)
+        {
+            bool inside = false;
+            for (int i = 0, previous = vertices.Length - 1; i < vertices.Length; previous = i++)
+            {
+                Vector2 currentVertex = vertices[i];
+                Vector2 previousVertex = vertices[previous];
+                bool crosses = (currentVertex.y > point.y) != (previousVertex.y > point.y)
+                    && point.x < (previousVertex.x - currentVertex.x)
+                        * (point.y - currentVertex.y)
+                        / (previousVertex.y - currentVertex.y)
+                        + currentVertex.x;
+                if (crosses)
+                {
+                    inside = !inside;
+                }
+            }
+
+            return inside;
+        }
+
+        private static void DestroyGeneratedSprite(Sprite sprite)
+        {
+            if (sprite == null)
+            {
+                return;
+            }
+
+            Texture2D texture = sprite.texture;
+            if (Application.isPlaying)
+            {
+                Destroy(sprite);
+                Destroy(texture);
+            }
+            else
+            {
+                DestroyImmediate(sprite);
+                DestroyImmediate(texture);
+            }
         }
     }
 }

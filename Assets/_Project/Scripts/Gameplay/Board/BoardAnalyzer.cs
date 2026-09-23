@@ -115,7 +115,30 @@ namespace GameMatch3.Gameplay.Board
                 verticalCount++;
             }
 
-            return verticalCount >= 3;
+            if (verticalCount >= 3)
+            {
+                return true;
+            }
+
+            for (int anchorX = x - 1; anchorX <= x; anchorX++)
+            {
+                for (int anchorY = y - 1; anchorY <= y; anchorY++)
+                {
+                    if (anchorX >= 0
+                        && anchorY >= 0
+                        && anchorX + 1 < width
+                        && anchorY + 1 < height
+                        && layout[anchorX, anchorY] == typeId
+                        && layout[anchorX + 1, anchorY] == typeId
+                        && layout[anchorX, anchorY + 1] == typeId
+                        && layout[anchorX + 1, anchorY + 1] == typeId)
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
         }
     }
 }

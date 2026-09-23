@@ -20,6 +20,7 @@ namespace GameMatch3.Gameplay.Board.Editor
                 "Tile Pool luôn có 10 Type ID; bật loại dùng cho level, chỉnh Spawn Weight, " +
                 "màu prototype và sprite 2D tại đây. Một level cần bật ít nhất 2 Type ID. " +
                 "Bàn đầu có ít nhất 2 nước hợp lệ; dead-board sẽ tự xáo mà không tạo object mới. " +
+                "Special Object tạm dùng elip (Match-4/2x2), ngũ giác (Wrapped) và lục giác (Color Bomb). " +
                 "Các tile con được tạo tự động và không lưu vào scene.",
                 MessageType.Info);
 
