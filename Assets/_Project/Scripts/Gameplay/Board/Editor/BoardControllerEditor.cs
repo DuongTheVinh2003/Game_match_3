@@ -14,14 +14,14 @@ namespace GameMatch3.Gameplay.Board.Editor
 
             EditorGUILayout.Space();
             EditorGUILayout.HelpBox(
-                "Board hỗ trợ từ 6 x 6 đến 8 x 8. Cell Size mặc định là 1. " +
+                "Board hỗ trợ từ 5 x 5 đến 12 x 12. Cell Size mặc định là 1. " +
                 "Camera tự căn để luôn nhìn trọn board và chừa phần bên trái cho HUD tương lai. " +
                 "Preview hiển thị ngay trong Scene. " +
                 "Tile Pool luôn có 10 Type ID; bật loại dùng cho level, chỉnh Spawn Weight, " +
                 "màu prototype và sprite 2D tại đây. Một level cần bật ít nhất 2 Type ID. " +
                 "Bàn đầu có ít nhất 2 nước hợp lệ; dead-board sẽ tự xáo mà không tạo object mới. " +
                 "Special Object tạm dùng elip (Match-4/2x2), ngũ giác (Wrapped) và lục giác (Color Bomb). " +
-                "Level, Target, Moves và toàn bộ quy tắc tính điểm được cấu hình trong Level Settings. " +
+                "Level, Board, Object Pool, Target và Moves được cấu hình trong Window > Game Match 3 > Level Editor. " +
                 "Góc trái dưới được để trống cho booster tương lai. " +
                 "Các tile con được tạo tự động và không lưu vào scene.",
                 MessageType.Info);

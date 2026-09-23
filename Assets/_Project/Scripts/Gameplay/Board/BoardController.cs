@@ -11,8 +11,8 @@ namespace GameMatch3.Gameplay.Board
     {
         // Cấu hình kích thước bàn chơi, mỗi cell và tốc độ các hiệu ứng qua Inspector.
         [Header("Board Size")]
-        [SerializeField, Range(6, 8)] private int width = 6;
-        [SerializeField, Range(6, 8)] private int height = 6;
+        [SerializeField, Min(5)] private int width = 5;
+        [SerializeField, Min(5)] private int height = 5;
         [SerializeField, Min(0.1f)] private float cellSize = 1f;
 
         [Header("Presentation")]
@@ -31,6 +31,7 @@ namespace GameMatch3.Gameplay.Board
         [SerializeField] private TilePool tilePool = new TilePool();
 
         [Header("Level")]
+        [SerializeField] private LevelData levelData;
         [SerializeField] private LevelSettings levelSettings = new LevelSettings();
 
         // Mảng logic: tiles[x, y] chứa tile tại tọa độ tương ứng, null nghĩa là ô trống.
@@ -66,6 +67,15 @@ namespace GameMatch3.Gameplay.Board
         public int RemainingMoves => remainingMoves;
         public bool IsLevelFinished => isLevelFinished;
         public LevelResult Result => levelResult;
+        public LevelData AssignedLevelData => levelData;
+        public IReadOnlyList<TilePoolEntry> TileCatalog
+        {
+            get
+            {
+                tilePool.EnsureCompleteCatalog();
+                return tilePool.Entries;
+            }
+        }
 
         private void OnEnable()
         {
@@ -106,6 +116,15 @@ namespace GameMatch3.Gameplay.Board
         public void RebuildPreview()
         {
             // Nút dành cho Editor: dựng lại preview theo các thông số hiện tại.
+            if (!Application.isPlaying)
+            {
+                RebuildBoard();
+            }
+        }
+
+        public void SetLevelData(LevelData data)
+        {
+            levelData = data;
             if (!Application.isPlaying)
             {
                 RebuildBoard();
@@ -165,8 +184,14 @@ namespace GameMatch3.Gameplay.Board
         {
             // Xóa preview cũ, giới hạn kích thước hợp lệ rồi tạo nền và tile mới.
             ClearGeneratedBoard();
-            width = Mathf.Clamp(width, 6, 8);
-            height = Mathf.Clamp(height, 6, 8);
+            if (levelData != null)
+            {
+                width = levelData.BoardWidth;
+                height = levelData.BoardHeight;
+            }
+
+            width = Mathf.Clamp(width, 5, 12);
+            height = Mathf.Clamp(height, 5, 12);
             cellSize = Mathf.Max(0.1f, cellSize);
             if (tilePool == null)
             {
@@ -178,11 +203,19 @@ namespace GameMatch3.Gameplay.Board
                 levelSettings = new LevelSettings();
             }
 
-            tilePool.GetActiveEntries(activeTilePool);
+            if (levelData != null)
+            {
+                LoadLevelTilePool();
+            }
+            else
+            {
+                tilePool.GetActiveEntries(activeTilePool);
+            }
+
             EnsureAtLeastTwoActiveTypes();
             nextTileInstanceId = 1;
             currentScore = 0;
-            remainingMoves = levelSettings.StartingMoves;
+            remainingMoves = CurrentStartingMoves;
             isLevelFinished = false;
             levelResult = LevelResult.InProgress;
             tiles = new TileView[width, height];
@@ -207,11 +240,40 @@ namespace GameMatch3.Gameplay.Board
             SetEditorPreviewFlags(hudObject);
             boardHud = hudObject.AddComponent<BoardHud>();
             boardHud.Build(
-                levelSettings.LevelNumber,
-                levelSettings.TargetScore,
+                CurrentLevelNumber,
+                CurrentTargetScore,
                 remainingMoves,
                 currentScore);
         }
+
+        private void LoadLevelTilePool()
+        {
+            activeTilePool.Clear();
+            HashSet<TileTypeId> addedTypes = new HashSet<TileTypeId>();
+            foreach (LevelObjectSpawn configuredObject in levelData.Objects)
+            {
+                if (activeTilePool.Count >= levelData.ObjectCount
+                    || !addedTypes.Add(configuredObject.TypeId))
+                {
+                    continue;
+                }
+
+                TilePoolEntry catalogEntry = tilePool.GetEntry(configuredObject.TypeId);
+                activeTilePool.Add(catalogEntry.CloneWithSpawnWeight(configuredObject.SpawnWeight));
+            }
+        }
+
+        private int CurrentLevelNumber => levelData != null
+            ? levelData.LevelNumber
+            : levelSettings.LevelNumber;
+
+        private int CurrentStartingMoves => levelData != null
+            ? levelData.StartingMoves
+            : levelSettings.StartingMoves;
+
+        private int CurrentTargetScore => levelData != null
+            ? levelData.TargetScore
+            : levelSettings.TargetScore;
 
         private void PopulateBoard()
         {
@@ -936,12 +998,12 @@ namespace GameMatch3.Gameplay.Board
 
         private bool TryFinishLevel()
         {
-            if (currentScore >= levelSettings.TargetScore)
+            if (currentScore >= CurrentTargetScore)
             {
                 isLevelFinished = true;
                 levelResult = LevelResult.Won;
                 Debug.Log(
-                    $"Level {levelSettings.LevelNumber} complete. Score: {currentScore}.",
+                    $"Level {CurrentLevelNumber} complete. Score: {currentScore}.",
                     this);
                 return true;
             }
@@ -951,7 +1013,7 @@ namespace GameMatch3.Gameplay.Board
                 isLevelFinished = true;
                 levelResult = LevelResult.Lost;
                 Debug.Log(
-                    $"Level {levelSettings.LevelNumber} failed. Score: {currentScore}/{levelSettings.TargetScore}.",
+                    $"Level {CurrentLevelNumber} failed. Score: {currentScore}/{CurrentTargetScore}.",
                     this);
                 return true;
             }

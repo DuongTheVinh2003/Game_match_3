@@ -30,6 +30,17 @@ namespace GameMatch3.Gameplay.Board
             this.enabledForLevel = enabledForLevel;
             this.spawnWeight = spawnWeight;
         }
+
+        public TilePoolEntry CloneWithSpawnWeight(float newSpawnWeight)
+        {
+            TilePoolEntry clone = new TilePoolEntry(
+                typeId,
+                prototypeColor,
+                enabledForLevel,
+                newSpawnWeight);
+            clone.sprite = sprite;
+            return clone;
+        }
     }
 
     // Danh muc 10 loai tile va cau hinh pool dang dung cho level hien tai.
