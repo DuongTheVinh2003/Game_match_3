@@ -19,6 +19,7 @@ namespace GameMatch3.Gameplay.Board
         [SerializeField, Min(0.01f)] private float swapDuration = 0.16f;
         [SerializeField, Min(0.01f)] private float clearDuration = 0.16f;
         [SerializeField, Min(0.01f)] private float fallDurationPerCell = 0.08f;
+        [SerializeField, Min(0.01f)] private float shuffleDuration = 0.35f;
         [SerializeField, Range(0.5f, 0.98f)] private float tileScale = 0.86f;
         [SerializeField, Range(0.01f, 0.25f)] private float dragThreshold = 0.15f;
         [SerializeField, Min(0.1f)] private float cameraPadding = 0.6f;
@@ -41,6 +42,10 @@ namespace GameMatch3.Gameplay.Board
         private System.Random random;
         private readonly List<TilePoolEntry> activeTilePool = new List<TilePoolEntry>(10);
         private int nextTileInstanceId;
+
+        private const int MinimumStartingMoves = 2;
+        private const int LayoutGenerationAttempts = 2048;
+        private const int ExactShuffleAttempts = 4096;
 
         public bool IsSwapping => isSwapping;
         public int Width => width;
@@ -145,6 +150,7 @@ namespace GameMatch3.Gameplay.Board
             }
 
             tilePool.GetActiveEntries(activeTilePool);
+            EnsureAtLeastTwoActiveTypes();
             nextTileInstanceId = 1;
             tiles = new TileView[width, height];
             squareSprite = CreateSquareSprite();
@@ -159,45 +165,73 @@ namespace GameMatch3.Gameplay.Board
             random = new System.Random(
                 Application.isPlaying ? System.Environment.TickCount : previewSeed);
 
+            if (!TryGeneratePlayableLayout(
+                    activeTilePool,
+                    MinimumStartingMoves,
+                    LayoutGenerationAttempts,
+                    out TilePoolEntry[,] layout))
+            {
+                throw new System.InvalidOperationException(
+                    "Could not generate a board without matches and with at least two valid moves.");
+            }
+
             for (int x = 0; x < width; x++)
             {
                 for (int y = 0; y < height; y++)
                 {
                     Vector2Int coordinate = new Vector2Int(x, y);
-                    TilePoolEntry definition = GetStartingTileDefinition(random, x, y);
+                    TilePoolEntry definition = layout[x, y];
                     tiles[x, y] = CreateTile(coordinate, definition, GetWorldPosition(coordinate));
                 }
             }
         }
 
-        private TilePoolEntry GetStartingTileDefinition(System.Random random, int x, int y)
+        private bool TryGeneratePlayableLayout(
+            IReadOnlyList<TilePoolEntry> candidates,
+            int minimumMoves,
+            int maximumAttempts,
+            out TilePoolEntry[,] result)
         {
-            // Loai cac Type ID co the tao chuoi 3 ngay luc khoi tao board.
-            // Nhờ vậy match chỉ bắt đầu sau một nước swap của người chơi.
-            List<TilePoolEntry> candidates = new List<TilePoolEntry>(activeTilePool);
-
-            if (x >= 2
-                && tiles[x - 1, y] != null
-                && tiles[x - 2, y] != null
-                && tiles[x - 1, y].TypeId == tiles[x - 2, y].TypeId)
+            result = null;
+            for (int attempt = 0; attempt < maximumAttempts; attempt++)
             {
-                TileTypeId blockedTypeId = tiles[x - 1, y].TypeId;
-                candidates.RemoveAll(entry => entry.TypeId == blockedTypeId);
+                TilePoolEntry[,] layout = new TilePoolEntry[width, height];
+                for (int x = 0; x < width; x++)
+                {
+                    for (int y = 0; y < height; y++)
+                    {
+                        List<TilePoolEntry> allowed = new List<TilePoolEntry>(candidates);
+                        if (x >= 2 && layout[x - 1, y].TypeId == layout[x - 2, y].TypeId)
+                        {
+                            TileTypeId blockedType = layout[x - 1, y].TypeId;
+                            allowed.RemoveAll(entry => entry.TypeId == blockedType);
+                        }
+
+                        if (y >= 2 && layout[x, y - 1].TypeId == layout[x, y - 2].TypeId)
+                        {
+                            TileTypeId blockedType = layout[x, y - 1].TypeId;
+                            allowed.RemoveAll(entry => entry.TypeId == blockedType);
+                        }
+
+                        if (allowed.Count == 0)
+                        {
+                            allowed.AddRange(candidates);
+                        }
+
+                        layout[x, y] = TilePool.PickRandom(random, allowed);
+                    }
+                }
+
+                TileTypeId[,] typeLayout = CreateTypeLayout(layout);
+                if (!BoardAnalyzer.HasAnyMatch(typeLayout)
+                    && BoardAnalyzer.CountValidMoves(typeLayout, minimumMoves) >= minimumMoves)
+                {
+                    result = layout;
+                    return true;
+                }
             }
 
-            if (y >= 2
-                && tiles[x, y - 1] != null
-                && tiles[x, y - 2] != null
-                && tiles[x, y - 1].TypeId == tiles[x, y - 2].TypeId)
-            {
-                TileTypeId blockedTypeId = tiles[x, y - 1].TypeId;
-                candidates.RemoveAll(entry => entry.TypeId == blockedTypeId);
-            }
-
-            // Pool quá nhỏ có thể không cho phép tạo board không match; vẫn tạo tile để board đầy.
-            return candidates.Count > 0
-                ? TilePool.PickRandom(random, candidates)
-                : TilePool.PickRandom(random, activeTilePool);
+            return false;
         }
 
         private TileView CreateTile(
@@ -306,7 +340,287 @@ namespace GameMatch3.Gameplay.Board
                 matches = MatchFinder.FindAll(tiles, width, height);
             }
 
+            if (CountCurrentValidMoves() == 0)
+            {
+                yield return ShuffleBoard();
+            }
+
             isSwapping = false;
+        }
+
+        private IEnumerator ShuffleBoard()
+        {
+            TileTypeId[,] shuffledLayout;
+            bool preservesAllTypes = TryCreateExactShuffledLayout(out shuffledLayout);
+
+            if (!preservesAllTypes)
+            {
+                // Fallback hiem gap: tim nhieu layout hop le va chon layout doi it Type ID nhat.
+                if (!TryCreateMinimumChangeLayout(out shuffledLayout, out int changedTypeCount))
+                {
+                    throw new System.InvalidOperationException("Could not create a playable shuffled board.");
+                }
+
+                Debug.LogWarning(
+                    $"The current tile distribution could not be shuffled into a playable board. " +
+                    $"Changed {changedTypeCount} Tile Type ID(s) as a fallback.",
+                    this);
+            }
+
+            yield return ApplyShuffledLayout(shuffledLayout);
+        }
+
+        private bool TryCreateExactShuffledLayout(out TileTypeId[,] result)
+        {
+            List<TileTypeId> types = new List<TileTypeId>(width * height);
+            for (int x = 0; x < width; x++)
+            {
+                for (int y = 0; y < height; y++)
+                {
+                    types.Add(tiles[x, y].TypeId);
+                }
+            }
+
+            for (int attempt = 0; attempt < ExactShuffleAttempts; attempt++)
+            {
+                ShuffleList(types);
+                TileTypeId[,] candidate = new TileTypeId[width, height];
+                int index = 0;
+                for (int x = 0; x < width; x++)
+                {
+                    for (int y = 0; y < height; y++)
+                    {
+                        candidate[x, y] = types[index++];
+                    }
+                }
+
+                if (!BoardAnalyzer.HasAnyMatch(candidate)
+                    && BoardAnalyzer.CountValidMoves(candidate, MinimumStartingMoves) >= MinimumStartingMoves)
+                {
+                    result = candidate;
+                    return true;
+                }
+            }
+
+            result = null;
+            return false;
+        }
+
+        private bool TryCreateMinimumChangeLayout(
+            out TileTypeId[,] bestLayout,
+            out int bestChangeCount)
+        {
+            Dictionary<TileTypeId, int> currentCounts = CountCurrentTileTypes();
+            bestLayout = null;
+            bestChangeCount = int.MaxValue;
+
+            for (int attempt = 0; attempt < LayoutGenerationAttempts; attempt++)
+            {
+                if (!TryGeneratePlayableLayout(activeTilePool, MinimumStartingMoves, 1, out TilePoolEntry[,] candidate))
+                {
+                    continue;
+                }
+
+                TileTypeId[,] typeLayout = CreateTypeLayout(candidate);
+                int changeCount = CountRequiredTypeChanges(currentCounts, typeLayout);
+                if (changeCount < bestChangeCount)
+                {
+                    bestChangeCount = changeCount;
+                    bestLayout = typeLayout;
+                    if (bestChangeCount == 0)
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return bestLayout != null;
+        }
+
+        private IEnumerator ApplyShuffledLayout(TileTypeId[,] targetLayout)
+        {
+            List<TileView> availableTiles = new List<TileView>(width * height);
+            for (int x = 0; x < width; x++)
+            {
+                for (int y = 0; y < height; y++)
+                {
+                    availableTiles.Add(tiles[x, y]);
+                }
+            }
+
+            // Gan tile cung Type ID truoc de fallback chi doi dung so ID toi thieu cua layout da chon.
+            TileView[,] assignments = new TileView[width, height];
+            for (int x = 0; x < width; x++)
+            {
+                for (int y = 0; y < height; y++)
+                {
+                    TileTypeId targetType = targetLayout[x, y];
+                    int tileIndex = availableTiles.FindIndex(tile => tile.TypeId == targetType);
+                    if (tileIndex >= 0)
+                    {
+                        assignments[x, y] = availableTiles[tileIndex];
+                        availableTiles.RemoveAt(tileIndex);
+                    }
+                }
+            }
+
+            for (int x = 0; x < width; x++)
+            {
+                for (int y = 0; y < height; y++)
+                {
+                    if (assignments[x, y] == null)
+                    {
+                        assignments[x, y] = availableTiles[0];
+                        availableTiles.RemoveAt(0);
+                    }
+                }
+            }
+
+            List<ShuffleMove> moves = new List<ShuffleMove>(width * height);
+            for (int x = 0; x < width; x++)
+            {
+                for (int y = 0; y < height; y++)
+                {
+                    TileTypeId targetType = targetLayout[x, y];
+                    TileView tile = assignments[x, y];
+                    Vector2Int destination = new Vector2Int(x, y);
+                    moves.Add(new ShuffleMove(
+                        tile,
+                        tile.transform.position,
+                        GetWorldPosition(destination)));
+
+                    if (tile.TypeId != targetType)
+                    {
+                        tile.SetType(targetType, tilePool.GetEntry(targetType), squareSprite);
+                    }
+
+                    tiles[x, y] = tile;
+                    tile.SetCoordinate(destination);
+                }
+            }
+
+            float elapsed = 0f;
+            while (elapsed < shuffleDuration)
+            {
+                elapsed += Time.deltaTime;
+                float t = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(elapsed / shuffleDuration));
+                foreach (ShuffleMove move in moves)
+                {
+                    move.Tile.transform.position = Vector3.Lerp(move.Start, move.End, t);
+                }
+
+                yield return null;
+            }
+
+            foreach (ShuffleMove move in moves)
+            {
+                move.Tile.transform.position = move.End;
+            }
+        }
+
+        private void EnsureAtLeastTwoActiveTypes()
+        {
+            if (activeTilePool.Count >= 2)
+            {
+                return;
+            }
+
+            foreach (TilePoolEntry entry in tilePool.Entries)
+            {
+                if (!activeTilePool.Exists(active => active.TypeId == entry.TypeId))
+                {
+                    activeTilePool.Add(entry);
+                    break;
+                }
+            }
+
+            Debug.LogWarning(
+                "A playable level needs at least two Tile Type IDs. " +
+                "A second catalog type was enabled for this board as a fallback.",
+                this);
+        }
+
+        private int CountCurrentValidMoves()
+        {
+            return BoardAnalyzer.CountValidMoves(CreateCurrentTypeLayout());
+        }
+
+        private TileTypeId[,] CreateCurrentTypeLayout()
+        {
+            TileTypeId[,] result = new TileTypeId[width, height];
+            for (int x = 0; x < width; x++)
+            {
+                for (int y = 0; y < height; y++)
+                {
+                    result[x, y] = tiles[x, y].TypeId;
+                }
+            }
+
+            return result;
+        }
+
+        private static TileTypeId[,] CreateTypeLayout(TilePoolEntry[,] definitions)
+        {
+            int layoutWidth = definitions.GetLength(0);
+            int layoutHeight = definitions.GetLength(1);
+            TileTypeId[,] result = new TileTypeId[layoutWidth, layoutHeight];
+            for (int x = 0; x < layoutWidth; x++)
+            {
+                for (int y = 0; y < layoutHeight; y++)
+                {
+                    result[x, y] = definitions[x, y].TypeId;
+                }
+            }
+
+            return result;
+        }
+
+        private Dictionary<TileTypeId, int> CountCurrentTileTypes()
+        {
+            Dictionary<TileTypeId, int> counts = new Dictionary<TileTypeId, int>();
+            for (int x = 0; x < width; x++)
+            {
+                for (int y = 0; y < height; y++)
+                {
+                    TileTypeId typeId = tiles[x, y].TypeId;
+                    counts[typeId] = counts.TryGetValue(typeId, out int count) ? count + 1 : 1;
+                }
+            }
+
+            return counts;
+        }
+
+        private static int CountRequiredTypeChanges(
+            Dictionary<TileTypeId, int> currentCounts,
+            TileTypeId[,] targetLayout)
+        {
+            Dictionary<TileTypeId, int> targetCounts = new Dictionary<TileTypeId, int>();
+            foreach (TileTypeId typeId in targetLayout)
+            {
+                targetCounts[typeId] = targetCounts.TryGetValue(typeId, out int count) ? count + 1 : 1;
+            }
+
+            int unchangedTiles = 0;
+            foreach (KeyValuePair<TileTypeId, int> pair in currentCounts)
+            {
+                if (targetCounts.TryGetValue(pair.Key, out int targetCount))
+                {
+                    unchangedTiles += Mathf.Min(pair.Value, targetCount);
+                }
+            }
+
+            return targetLayout.Length - unchangedTiles;
+        }
+
+        private void ShuffleList<T>(List<T> values)
+        {
+            for (int i = values.Count - 1; i > 0; i--)
+            {
+                int swapIndex = random.Next(i + 1);
+                T value = values[i];
+                values[i] = values[swapIndex];
+                values[swapIndex] = value;
+            }
         }
 
         private IEnumerator AnimateSwap(Vector2Int first, Vector2Int second)
@@ -524,6 +838,20 @@ namespace GameMatch3.Gameplay.Board
                 {
                     move.Tile.transform.position = move.End;
                 }
+            }
+        }
+
+        private readonly struct ShuffleMove
+        {
+            public readonly TileView Tile;
+            public readonly Vector3 Start;
+            public readonly Vector3 End;
+
+            public ShuffleMove(TileView tile, Vector3 start, Vector3 end)
+            {
+                Tile = tile;
+                Start = start;
+                End = end;
             }
         }
 

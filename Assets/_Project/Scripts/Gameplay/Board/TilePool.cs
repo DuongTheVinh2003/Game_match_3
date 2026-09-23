@@ -11,11 +11,11 @@ namespace GameMatch3.Gameplay.Board
         [SerializeField] private bool enabledForLevel;
         [SerializeField, Min(0.01f)] private float spawnWeight = 1f;
         [SerializeField] private Color prototypeColor = Color.white;
-        [SerializeField] private Sprite sprite;
+        [SerializeField] private Sprite sprite = null;
 
         public TileTypeId TypeId => typeId;
         public bool EnabledForLevel => enabledForLevel;
-        public float SpawnWeight => Mathf.Max(0f, spawnWeight);
+        public float SpawnWeight => Mathf.Max(0.01f, spawnWeight);
         public Color PrototypeColor => prototypeColor;
         public Sprite Sprite => sprite;
 
@@ -111,6 +111,20 @@ namespace GameMatch3.Gameplay.Board
             {
                 results.Add(entries[0]);
             }
+        }
+
+        public TilePoolEntry GetEntry(TileTypeId typeId)
+        {
+            EnsureCompleteCatalog();
+            foreach (TilePoolEntry entry in entries)
+            {
+                if (entry.TypeId == typeId)
+                {
+                    return entry;
+                }
+            }
+
+            throw new InvalidOperationException($"Tile type {typeId} is missing from the catalog.");
         }
 
         public static TilePoolEntry PickRandom(

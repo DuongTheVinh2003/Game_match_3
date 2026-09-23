@@ -18,7 +18,9 @@ namespace GameMatch3.Gameplay.Board.Editor
                 "Camera tự căn để luôn nhìn trọn board và chừa phần bên trái cho HUD tương lai. " +
                 "Preview hiển thị ngay trong Scene. " +
                 "Tile Pool luôn có 10 Type ID; bật loại dùng cho level, chỉnh Spawn Weight, " +
-                "màu prototype và sprite 2D tại đây. Các tile con được tạo tự động và không lưu vào scene.",
+                "màu prototype và sprite 2D tại đây. Một level cần bật ít nhất 2 Type ID. " +
+                "Bàn đầu có ít nhất 2 nước hợp lệ; dead-board sẽ tự xáo mà không tạo object mới. " +
+                "Các tile con được tạo tự động và không lưu vào scene.",
                 MessageType.Info);
 
             using (new EditorGUI.DisabledScope(Application.isPlaying))
