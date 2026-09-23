@@ -30,6 +30,9 @@ namespace GameMatch3.Gameplay.Board
         [Header("Tile Pool")]
         [SerializeField] private TilePool tilePool = new TilePool();
 
+        [Header("Level")]
+        [SerializeField] private LevelSettings levelSettings = new LevelSettings();
+
         // Mảng logic: tiles[x, y] chứa tile tại tọa độ tương ứng, null nghĩa là ô trống.
         private TileView[,] tiles;
         private Sprite squareSprite;
@@ -45,6 +48,11 @@ namespace GameMatch3.Gameplay.Board
         private System.Random random;
         private readonly List<TilePoolEntry> activeTilePool = new List<TilePoolEntry>(10);
         private int nextTileInstanceId;
+        private BoardHud boardHud;
+        private int currentScore;
+        private int remainingMoves;
+        private bool isLevelFinished;
+        private LevelResult levelResult;
 
         private const int MinimumStartingMoves = 2;
         private const int LayoutGenerationAttempts = 2048;
@@ -54,6 +62,10 @@ namespace GameMatch3.Gameplay.Board
         public int Width => width;
         public int Height => height;
         public float CellSize => cellSize;
+        public int CurrentScore => currentScore;
+        public int RemainingMoves => remainingMoves;
+        public bool IsLevelFinished => isLevelFinished;
+        public LevelResult Result => levelResult;
 
         private void OnEnable()
         {
@@ -66,6 +78,11 @@ namespace GameMatch3.Gameplay.Board
             if (tilePool == null)
             {
                 tilePool = new TilePool();
+            }
+
+            if (levelSettings == null)
+            {
+                levelSettings = new LevelSettings();
             }
 
             tilePool.EnsureCompleteCatalog();
@@ -109,7 +126,11 @@ namespace GameMatch3.Gameplay.Board
         public bool TrySwap(Vector2Int first, Vector2Int second)
         {
             // Chỉ cho phép đổi hai ô có tile, kề nhau theo ngang/dọc, khi board đang rảnh.
-            if (isSwapping || !IsInside(first) || !IsInside(second) || !AreAdjacent(first, second))
+            if (isLevelFinished
+                || isSwapping
+                || !IsInside(first)
+                || !IsInside(second)
+                || !AreAdjacent(first, second))
             {
                 return false;
             }
@@ -152,17 +173,44 @@ namespace GameMatch3.Gameplay.Board
                 tilePool = new TilePool();
             }
 
+            if (levelSettings == null)
+            {
+                levelSettings = new LevelSettings();
+            }
+
             tilePool.GetActiveEntries(activeTilePool);
             EnsureAtLeastTwoActiveTypes();
             nextTileInstanceId = 1;
+            currentScore = 0;
+            remainingMoves = levelSettings.StartingMoves;
+            isLevelFinished = false;
+            levelResult = LevelResult.InProgress;
             tiles = new TileView[width, height];
             squareSprite = CreateSquareSprite();
             ellipseSprite = CreateEllipseSprite();
             pentagonSprite = CreatePolygonSprite(5);
             hexagonSprite = CreatePolygonSprite(6);
             ConfigureCamera();
+            CreateHud();
             CreateBoardBackground();
             PopulateBoard();
+        }
+
+        private void CreateHud()
+        {
+            GameObject hudObject = new GameObject(
+                "LevelHUD",
+                typeof(RectTransform),
+                typeof(Canvas),
+                typeof(UnityEngine.UI.CanvasScaler));
+            hudObject.transform.SetParent(transform, false);
+            SetEditorPreviewFlags(hudObject);
+            boardHud = hudObject.AddComponent<BoardHud>();
+            boardHud.Build(
+                levelSettings.LevelNumber,
+                levelSettings.TargetScore,
+                remainingMoves,
+                currentScore);
         }
 
         private void PopulateBoard()
@@ -288,7 +336,7 @@ namespace GameMatch3.Gameplay.Board
         private void ReadPointerInput()
         {
             // Ghi nhận ô bắt đầu khi nhấn; khi thả, lấy trục kéo mạnh hơn để chọn ô kề.
-            if (isSwapping)
+            if (isSwapping || isLevelFinished)
             {
                 return;
             }
@@ -336,9 +384,15 @@ namespace GameMatch3.Gameplay.Board
                 yield break;
             }
 
+            ConsumeMove();
+            int resolutionIndex = 0;
             if (colorBombSwap)
             {
-                yield return ResolveColorBombSwap(movedTile, otherTile);
+                yield return ResolveColorBombSwap(
+                    movedTile,
+                    otherTile,
+                    GetCascadeMultiplier(resolutionIndex));
+                resolutionIndex++;
                 yield return ApplyGravity();
                 yield return RefillBoard();
                 matches = MatchFinder.FindAll(tiles, width, height);
@@ -355,11 +409,19 @@ namespace GameMatch3.Gameplay.Board
                     matches,
                     isPlayerMatch ? (Vector2Int?)second : null,
                     swapDirection,
-                    isPlayerMatch);
+                    isPlayerMatch,
+                    GetCascadeMultiplier(resolutionIndex));
+                resolutionIndex++;
                 yield return ApplyGravity();
                 yield return RefillBoard();
                 matches = MatchFinder.FindAll(tiles, width, height);
                 isPlayerMatch = false;
+            }
+
+            if (TryFinishLevel())
+            {
+                isSwapping = false;
+                yield break;
             }
 
             if (CountCurrentValidMoves() == 0)
@@ -370,7 +432,10 @@ namespace GameMatch3.Gameplay.Board
             isSwapping = false;
         }
 
-        private IEnumerator ResolveColorBombSwap(TileView first, TileView second)
+        private IEnumerator ResolveColorBombSwap(
+            TileView first,
+            TileView second,
+            int scoreMultiplier)
         {
             TileView bomb = first.SpecialType == SpecialObjectType.ColorBomb ? first : second;
             TileView normal = bomb == first ? second : first;
@@ -388,14 +453,15 @@ namespace GameMatch3.Gameplay.Board
             }
 
             ExpandSpecialEffects(tilesToClear, null, normal.TypeId, out bool hasWrappedActivation);
-            yield return ClearMatches(tilesToClear, hasWrappedActivation);
+            yield return ClearMatches(tilesToClear, hasWrappedActivation, scoreMultiplier);
         }
 
         private IEnumerator ResolveMatchStep(
             MatchResult matchResult,
             Vector2Int? preferredCoordinate,
             StripedDirection playerStripedDirection,
-            bool isPlayerMatch)
+            bool isPlayerMatch,
+            int scoreMultiplier)
         {
             List<SpecialCreation> creations = new List<SpecialCreation>();
             HashSet<TileView> protectedHosts = new HashSet<TileView>();
@@ -431,6 +497,11 @@ namespace GameMatch3.Gameplay.Board
                 protectedHosts.Add(host);
             }
 
+            foreach (SpecialCreation creation in creations)
+            {
+                AddScore(levelSettings.GetCreationBonus(creation.SpecialType));
+            }
+
             HashSet<TileView> tilesToClear = new HashSet<TileView>(matchResult.AllTiles);
             tilesToClear.ExceptWith(protectedHosts);
             ExpandSpecialEffects(tilesToClear, protectedHosts, null, out bool hasWrappedActivation);
@@ -443,7 +514,7 @@ namespace GameMatch3.Gameplay.Board
                     GetSpecialModelSprite(creation.SpecialType));
             }
 
-            yield return ClearMatches(tilesToClear, hasWrappedActivation);
+            yield return ClearMatches(tilesToClear, hasWrappedActivation, scoreMultiplier);
         }
 
         private TileView ChooseSpecialHost(MatchGroup group, Vector2Int? preferredCoordinate)
@@ -834,6 +905,60 @@ namespace GameMatch3.Gameplay.Board
                 this);
         }
 
+        private void ConsumeMove()
+        {
+            remainingMoves = Mathf.Max(0, remainingMoves - 1);
+            if (boardHud != null)
+            {
+                boardHud.SetMoves(remainingMoves);
+            }
+        }
+
+        private void AddScore(long points)
+        {
+            if (points <= 0)
+            {
+                return;
+            }
+
+            long updatedScore = currentScore + points;
+            currentScore = updatedScore > int.MaxValue ? int.MaxValue : (int)updatedScore;
+            if (boardHud != null)
+            {
+                boardHud.SetScore(currentScore);
+            }
+        }
+
+        private int GetCascadeMultiplier(int resolutionIndex)
+        {
+            return Mathf.Min(resolutionIndex + 1, levelSettings.MaximumCascadeMultiplier);
+        }
+
+        private bool TryFinishLevel()
+        {
+            if (currentScore >= levelSettings.TargetScore)
+            {
+                isLevelFinished = true;
+                levelResult = LevelResult.Won;
+                Debug.Log(
+                    $"Level {levelSettings.LevelNumber} complete. Score: {currentScore}.",
+                    this);
+                return true;
+            }
+
+            if (remainingMoves <= 0)
+            {
+                isLevelFinished = true;
+                levelResult = LevelResult.Lost;
+                Debug.Log(
+                    $"Level {levelSettings.LevelNumber} failed. Score: {currentScore}/{levelSettings.TargetScore}.",
+                    this);
+                return true;
+            }
+
+            return false;
+        }
+
         private int CountCurrentValidMoves()
         {
             return MoveFinder.CountValidMoves(tiles, width, height);
@@ -963,8 +1088,13 @@ namespace GameMatch3.Gameplay.Board
             }
         }
 
-        private IEnumerator ClearMatches(HashSet<TileView> matches, bool hasWrappedActivation)
+        private IEnumerator ClearMatches(
+            HashSet<TileView> matches,
+            bool hasWrappedActivation,
+            int scoreMultiplier)
         {
+            AddScore((long)matches.Count * levelSettings.PointsPerClearedTile * scoreMultiplier);
+
             // Đánh dấu các ô đã xóa là trống trước khi chạy hiệu ứng thu nhỏ.
             foreach (TileView tile in matches)
             {

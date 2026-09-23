@@ -21,6 +21,8 @@ namespace GameMatch3.Gameplay.Board.Editor
                 "màu prototype và sprite 2D tại đây. Một level cần bật ít nhất 2 Type ID. " +
                 "Bàn đầu có ít nhất 2 nước hợp lệ; dead-board sẽ tự xáo mà không tạo object mới. " +
                 "Special Object tạm dùng elip (Match-4/2x2), ngũ giác (Wrapped) và lục giác (Color Bomb). " +
+                "Level, Target, Moves và toàn bộ quy tắc tính điểm được cấu hình trong Level Settings. " +
+                "Góc trái dưới được để trống cho booster tương lai. " +
                 "Các tile con được tạo tự động và không lưu vào scene.",
                 MessageType.Info);
 
