@@ -11,8 +11,48 @@ namespace GameMatch3.Gameplay.Board
         private Text targetText;
         private Text movesText;
         private Text scoreText;
+        private Text playerHealthText;
+        private Text botHealthText;
+        private Text turnText;
 
-        public void Build(int levelNumber, int targetScore, int remainingMoves, int score)
+        public void BuildClassic(int levelNumber, int targetScore, int remainingMoves, int score)
+        {
+            ConfigureCanvas();
+            Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            Color panelColor = new Color(0.96f, 0.68f, 0.76f, 0.94f);
+            Color textColor = new Color(0.20f, 0.23f, 0.18f);
+
+            levelText = CreatePanel("Level", new Vector2(24f, -24f), new Vector2(330f, 78f), font, panelColor, textColor);
+            targetText = CreatePanel("Target", new Vector2(24f, -116f), new Vector2(330f, 96f), font, panelColor, textColor);
+            movesText = CreatePanel("Moves", new Vector2(50f, -226f), new Vector2(280f, 108f), font, panelColor, textColor);
+            scoreText = CreatePanel("Score", new Vector2(50f, -348f), new Vector2(220f, 174f), font, panelColor, textColor);
+
+            CreateBoosterReservedArea();
+            SetLevel(levelNumber);
+            SetTarget(targetScore);
+            SetMoves(remainingMoves);
+            SetScore(score);
+        }
+
+        public void BuildPve(int levelNumber, int playerHealth, int botHealth, PveTurn turn)
+        {
+            ConfigureCanvas();
+            Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            Color panelColor = new Color(0.35f, 0.72f, 0.42f, 0.94f);
+            Color textColor = new Color(0.10f, 0.20f, 0.12f);
+
+            levelText = CreatePanel("Level", new Vector2(24f, -24f), new Vector2(330f, 78f), font, panelColor, textColor);
+            botHealthText = CreatePanel("BotHealth", new Vector2(24f, -116f), new Vector2(330f, 104f), font, panelColor, textColor);
+            playerHealthText = CreatePanel("PlayerHealth", new Vector2(24f, -234f), new Vector2(330f, 104f), font, panelColor, textColor);
+            turnText = CreatePanel("Turn", new Vector2(24f, -352f), new Vector2(330f, 104f), font, panelColor, textColor);
+
+            CreateBoosterReservedArea();
+            SetLevel(levelNumber);
+            SetPveHealth(playerHealth, botHealth);
+            SetPveTurn(turn, false);
+        }
+
+        private void ConfigureCanvas()
         {
             Canvas canvas = GetComponent<Canvas>();
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
@@ -33,16 +73,10 @@ namespace GameMatch3.Gameplay.Board
             scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
             scaler.matchWidthOrHeight = 0.5f;
 
-            Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-            Color panelColor = new Color(0.96f, 0.68f, 0.76f, 0.94f);
-            Color textColor = new Color(0.20f, 0.23f, 0.18f);
+        }
 
-            levelText = CreatePanel("Level", new Vector2(24f, -24f), new Vector2(330f, 78f), font, panelColor, textColor);
-            targetText = CreatePanel("Target", new Vector2(24f, -116f), new Vector2(330f, 96f), font, panelColor, textColor);
-            movesText = CreatePanel("Moves", new Vector2(50f, -226f), new Vector2(280f, 108f), font, panelColor, textColor);
-            scoreText = CreatePanel("Score", new Vector2(50f, -348f), new Vector2(220f, 174f), font, panelColor, textColor);
-
-            // Khong hien thi gi; chi giu san mot vung layout cho booster o goc trai duoi.
+        private void CreateBoosterReservedArea()
+        {
             GameObject boosterSpace = new GameObject("BoosterReservedArea", typeof(RectTransform));
             boosterSpace.transform.SetParent(transform, false);
             SetPreviewFlags(boosterSpace);
@@ -53,10 +87,6 @@ namespace GameMatch3.Gameplay.Board
             boosterRect.anchoredPosition = new Vector2(24f, 24f);
             boosterRect.sizeDelta = new Vector2(330f, 110f);
 
-            SetLevel(levelNumber);
-            SetTarget(targetScore);
-            SetMoves(remainingMoves);
-            SetScore(score);
         }
 
         public void SetLevel(int levelNumber)
@@ -89,6 +119,31 @@ namespace GameMatch3.Gameplay.Board
             {
                 scoreText.text = $"Score\n{score}";
             }
+        }
+
+        public void SetPveHealth(int playerHealth, int botHealth)
+        {
+            if (playerHealthText != null)
+            {
+                playerHealthText.text = $"Player HP\n{playerHealth}";
+            }
+
+            if (botHealthText != null)
+            {
+                botHealthText.text = $"Bot HP\n{botHealth}";
+            }
+        }
+
+        public void SetPveTurn(PveTurn turn, bool isThinking)
+        {
+            if (turnText == null)
+            {
+                return;
+            }
+
+            turnText.text = turn == PveTurn.Player
+                ? "PLAYER TURN"
+                : isThinking ? "BOT THINKING..." : "BOT TURN";
         }
 
         private Text CreatePanel(

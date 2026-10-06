@@ -1,9 +1,16 @@
 using System.Collections;
 using System.Collections.Generic;
+using GameMatch3.Gameplay.Board.Bot;
 using UnityEngine;
 
 namespace GameMatch3.Gameplay.Board
 {
+    public enum PveTurn
+    {
+        Player,
+        Bot
+    }
+
     // Điều phối toàn bộ board: tạo ô/tile, nhận thao tác swap, giải quyết match và gravity.
     // ExecuteAlways giúp xem board ngay trong Scene View mà không cần nhấn Play.
     [ExecuteAlways]
@@ -51,9 +58,14 @@ namespace GameMatch3.Gameplay.Board
         private int nextTileInstanceId;
         private BoardHud boardHud;
         private int currentScore;
+        private long scoreEarnedThisMove;
         private int remainingMoves;
         private bool isLevelFinished;
         private LevelResult levelResult;
+        private int playerHealth;
+        private int botHealth;
+        private PveTurn currentTurn;
+        private PveBotController botController;
 
         private const int MinimumStartingMoves = 2;
         private const int LayoutGenerationAttempts = 2048;
@@ -68,7 +80,18 @@ namespace GameMatch3.Gameplay.Board
         public bool IsLevelFinished => isLevelFinished;
         public LevelResult Result => levelResult;
         public LevelData AssignedLevelData => levelData;
+        public int PlayerHealth => playerHealth;
+        public int BotHealth => botHealth;
+        public PveTurn CurrentTurn => currentTurn;
         public event System.Action<LevelResult> LevelFinished;
+        internal bool CanBotAct => IsPve
+            && !isLevelFinished
+            && !isSwapping
+            && currentTurn == PveTurn.Bot;
+        internal LevelData CurrentPveLevel => levelData;
+        internal TileView[,] CurrentTiles => tiles;
+        internal LevelSettings ScoringSettings => levelSettings;
+        internal System.Random GameplayRandom => random;
         public IReadOnlyList<TilePoolEntry> TileCatalog
         {
             get
@@ -86,6 +109,11 @@ namespace GameMatch3.Gameplay.Board
 
         private void OnDisable()
         {
+            if (botController != null)
+            {
+                botController.CancelTurn();
+            }
+
             // HUD dùng Screen Space Overlay nên phải đứng ở scene root. Dọn riêng khi
             // board bị tắt/xóa để không để lại một Canvas mồ côi trong Scene/Game View.
             DestroyHud();
@@ -155,6 +183,7 @@ namespace GameMatch3.Gameplay.Board
             // Chỉ cho phép đổi hai ô có tile, kề nhau theo ngang/dọc, khi board đang rảnh.
             if (isLevelFinished
                 || isSwapping
+                || (IsPve && currentTurn != PveTurn.Player)
                 || !IsInside(first)
                 || !IsInside(second)
                 || !AreAdjacent(first, second))
@@ -224,6 +253,9 @@ namespace GameMatch3.Gameplay.Board
             nextTileInstanceId = 1;
             currentScore = 0;
             remainingMoves = CurrentStartingMoves;
+            playerHealth = levelData != null ? levelData.PlayerMaxHealth : LevelData.DefaultPveHealth;
+            botHealth = levelData != null ? levelData.BotMaxHealth : LevelData.DefaultPveHealth;
+            currentTurn = PveTurn.Player;
             isLevelFinished = false;
             levelResult = LevelResult.InProgress;
             tiles = new TileView[width, height];
@@ -235,6 +267,23 @@ namespace GameMatch3.Gameplay.Board
             CreateHud();
             CreateBoardBackground();
             PopulateBoard();
+            ConfigureBot();
+        }
+
+        private void ConfigureBot()
+        {
+            if (!Application.isPlaying || !IsPve)
+            {
+                return;
+            }
+
+            botController = GetComponent<PveBotController>();
+            if (botController == null)
+            {
+                botController = gameObject.AddComponent<PveBotController>();
+            }
+
+            botController.Initialize(this);
         }
 
         private void CreateHud()
@@ -251,11 +300,18 @@ namespace GameMatch3.Gameplay.Board
             hudObject.transform.SetParent(null, false);
             SetEditorPreviewFlags(hudObject);
             boardHud = hudObject.AddComponent<BoardHud>();
-            boardHud.Build(
-                CurrentLevelNumber,
-                CurrentTargetScore,
-                remainingMoves,
-                currentScore);
+            if (IsPve)
+            {
+                boardHud.BuildPve(CurrentLevelNumber, playerHealth, botHealth, currentTurn);
+            }
+            else
+            {
+                boardHud.BuildClassic(
+                    CurrentLevelNumber,
+                    CurrentTargetScore,
+                    remainingMoves,
+                    currentScore);
+            }
         }
 
         private void LoadLevelTilePool()
@@ -264,8 +320,7 @@ namespace GameMatch3.Gameplay.Board
             HashSet<TileTypeId> addedTypes = new HashSet<TileTypeId>();
             foreach (LevelObjectSpawn configuredObject in levelData.Objects)
             {
-                if (activeTilePool.Count >= levelData.ObjectCount
-                    || !addedTypes.Add(configuredObject.TypeId))
+                if (!addedTypes.Add(configuredObject.TypeId))
                 {
                     continue;
                 }
@@ -286,6 +341,8 @@ namespace GameMatch3.Gameplay.Board
         private int CurrentTargetScore => levelData != null
             ? levelData.TargetScore
             : levelSettings.TargetScore;
+
+        private bool IsPve => levelData != null && levelData.Mode == LevelMode.Pve;
 
         private void PopulateBoard()
         {
@@ -410,7 +467,7 @@ namespace GameMatch3.Gameplay.Board
         private void ReadPointerInput()
         {
             // Ghi nhận ô bắt đầu khi nhấn; khi thả, lấy trục kéo mạnh hơn để chọn ô kề.
-            if (isSwapping || isLevelFinished)
+            if (isSwapping || isLevelFinished || (IsPve && currentTurn != PveTurn.Player))
             {
                 return;
             }
@@ -442,6 +499,8 @@ namespace GameMatch3.Gameplay.Board
 
         private IEnumerator ResolveSwapRoutine(Vector2Int first, Vector2Int second)
         {
+            PveTurn actingTurn = currentTurn;
+            scoreEarnedThisMove = 0;
             isSwapping = true;
             yield return AnimateSwap(first, second);
             SwapTileData(first, second);
@@ -458,7 +517,15 @@ namespace GameMatch3.Gameplay.Board
                 yield break;
             }
 
-            ConsumeMove();
+            if (!IsPve)
+            {
+                ConsumeMove();
+            }
+
+            bool reverseGravity = IsPve
+                && (actingTurn == PveTurn.Player
+                    ? levelData.PlayerRefillDirection
+                    : levelData.BotRefillDirection) == PveRefillDirection.FromBottom;
             int resolutionIndex = 0;
             if (colorBombSwap)
             {
@@ -467,8 +534,8 @@ namespace GameMatch3.Gameplay.Board
                     otherTile,
                     GetCascadeMultiplier(resolutionIndex));
                 resolutionIndex++;
-                yield return ApplyGravity();
-                yield return RefillBoard();
+                yield return ApplyGravity(reverseGravity);
+                yield return RefillBoard(reverseGravity);
                 matches = MatchFinder.FindAll(tiles, width, height);
             }
 
@@ -486,10 +553,15 @@ namespace GameMatch3.Gameplay.Board
                     isPlayerMatch,
                     GetCascadeMultiplier(resolutionIndex));
                 resolutionIndex++;
-                yield return ApplyGravity();
-                yield return RefillBoard();
+                yield return ApplyGravity(reverseGravity);
+                yield return RefillBoard(reverseGravity);
                 matches = MatchFinder.FindAll(tiles, width, height);
                 isPlayerMatch = false;
+            }
+
+            if (IsPve)
+            {
+                ApplyPveDamage(actingTurn, scoreEarnedThisMove);
             }
 
             if (TryFinishLevel())
@@ -501,9 +573,21 @@ namespace GameMatch3.Gameplay.Board
             if (CountCurrentValidMoves() == 0)
             {
                 yield return ShuffleBoard();
+                if (IsPve)
+                {
+                    // Không có move: reshuffle và giữ nguyên lượt của bên vừa đi.
+                    isSwapping = false;
+                    ContinuePveTurn();
+                    yield break;
+                }
             }
 
             isSwapping = false;
+            if (IsPve)
+            {
+                currentTurn = actingTurn == PveTurn.Player ? PveTurn.Bot : PveTurn.Player;
+                ContinuePveTurn();
+            }
         }
 
         private IEnumerator ResolveColorBombSwap(
@@ -979,6 +1063,85 @@ namespace GameMatch3.Gameplay.Board
                 this);
         }
 
+        private void ApplyPveDamage(PveTurn attacker, long turnScore)
+        {
+            if (!IsPve || turnScore <= 0)
+            {
+                return;
+            }
+
+            double rawDamage = turnScore * (double)levelData.ScoreToDamageMultiplier;
+            int damage = rawDamage >= int.MaxValue
+                ? int.MaxValue
+                : Mathf.Max(1, (int)System.Math.Round(rawDamage, System.MidpointRounding.AwayFromZero));
+            if (attacker == PveTurn.Player)
+            {
+                botHealth = Mathf.Max(0, botHealth - damage);
+            }
+            else
+            {
+                playerHealth = Mathf.Max(0, playerHealth - damage);
+            }
+
+            if (boardHud != null)
+            {
+                boardHud.SetPveHealth(playerHealth, botHealth);
+            }
+        }
+
+        private void ContinuePveTurn()
+        {
+            if (!IsPve || isLevelFinished)
+            {
+                return;
+            }
+
+            if (currentTurn == PveTurn.Player)
+            {
+                if (boardHud != null)
+                {
+                    boardHud.SetPveTurn(currentTurn, false);
+                }
+
+                return;
+            }
+
+            if (botController != null)
+            {
+                botController.BeginTurn();
+            }
+        }
+
+        internal void SetBotThinkingState(bool isThinking)
+        {
+            if (boardHud != null)
+            {
+                boardHud.SetPveTurn(PveTurn.Bot, isThinking);
+            }
+        }
+
+        internal void ExecuteBotMove(PveBotMove move)
+        {
+            if (!CanBotAct)
+            {
+                return;
+            }
+
+            StartCoroutine(ResolveSwapRoutine(move.First, move.Second));
+        }
+
+        internal IEnumerator ReshuffleForBot()
+        {
+            if (!CanBotAct)
+            {
+                yield break;
+            }
+
+            isSwapping = true;
+            yield return ShuffleBoard();
+            isSwapping = false;
+        }
+
         private void ConsumeMove()
         {
             remainingMoves = Mathf.Max(0, remainingMoves - 1);
@@ -995,6 +1158,8 @@ namespace GameMatch3.Gameplay.Board
                 return;
             }
 
+            scoreEarnedThisMove = System.Math.Min(long.MaxValue - points, scoreEarnedThisMove) + points;
+
             long updatedScore = currentScore + points;
             currentScore = updatedScore > int.MaxValue ? int.MaxValue : (int)updatedScore;
             if (boardHud != null)
@@ -1010,6 +1175,25 @@ namespace GameMatch3.Gameplay.Board
 
         private bool TryFinishLevel()
         {
+            if (IsPve)
+            {
+                if (playerHealth > 0 && botHealth > 0)
+                {
+                    return false;
+                }
+
+                isLevelFinished = true;
+                levelResult = botHealth <= 0 && playerHealth > 0
+                    ? LevelResult.Won
+                    : LevelResult.Lost;
+                Debug.Log(
+                    $"PVE level {CurrentLevelNumber} finished: {levelResult}. " +
+                    $"Player HP {playerHealth}, Bot HP {botHealth}.",
+                    this);
+                LevelFinished?.Invoke(levelResult);
+                return true;
+            }
+
             if (currentScore >= CurrentTargetScore)
             {
                 isLevelFinished = true;
@@ -1243,37 +1427,38 @@ namespace GameMatch3.Gameplay.Board
             }
         }
 
-        private IEnumerator ApplyGravity()
+        private IEnumerator ApplyGravity(bool reverse = false)
         {
-            // Duyệt từng cột từ dưới lên và dồn tile về vị trí trống thấp nhất.
+            // Player/Classic dồn xuống; bot PvE dồn lên để đổi góc nhìn của lượt.
             List<FallMove> moves = new List<FallMove>();
 
             for (int x = 0; x < width; x++)
             {
-                int destinationY = 0;
-                for (int sourceY = 0; sourceY < height; sourceY++)
+                int destinationY = reverse ? height - 1 : 0;
+                int sourceY = reverse ? height - 1 : 0;
+                while (sourceY >= 0 && sourceY < height)
                 {
                     TileView tile = tiles[x, sourceY];
-                    if (tile == null)
+                    if (tile != null)
                     {
-                        continue;
+                        if (sourceY != destinationY)
+                        {
+                            Vector2Int destination = new Vector2Int(x, destinationY);
+                            moves.Add(new FallMove(
+                                tile,
+                                tile.transform.position,
+                                GetWorldPosition(destination),
+                                Mathf.Abs(sourceY - destinationY)));
+
+                            tiles[x, destinationY] = tile;
+                            tiles[x, sourceY] = null;
+                            tile.SetCoordinate(destination);
+                        }
+
+                        destinationY += reverse ? -1 : 1;
                     }
 
-                    if (sourceY != destinationY)
-                    {
-                        Vector2Int destination = new Vector2Int(x, destinationY);
-                        moves.Add(new FallMove(
-                            tile,
-                            tile.transform.position,
-                            GetWorldPosition(destination),
-                            sourceY - destinationY));
-
-                        tiles[x, destinationY] = tile;
-                        tiles[x, sourceY] = null;
-                        tile.SetCoordinate(destination);
-                    }
-
-                    destinationY++;
+                    sourceY += reverse ? -1 : 1;
                 }
             }
 
@@ -1315,28 +1500,38 @@ namespace GameMatch3.Gameplay.Board
             }
         }
 
-        private IEnumerator RefillBoard()
+        private IEnumerator RefillBoard(bool reverse = false)
         {
-            // Sau gravity, ô trống của mỗi cột nằm liên tiếp ở phía trên.
+            // Player/Classic sinh từ trên; bot PvE sinh từ dưới.
             List<FallMove> moves = new List<FallMove>();
             for (int x = 0; x < width; x++)
             {
-                int firstEmptyY = 0;
-                while (firstEmptyY < height && tiles[x, firstEmptyY] != null)
+                if (!reverse)
                 {
-                    firstEmptyY++;
-                }
+                    int firstEmptyY = 0;
+                    while (firstEmptyY < height && tiles[x, firstEmptyY] != null)
+                    {
+                        firstEmptyY++;
+                    }
 
-                for (int y = firstEmptyY; y < height; y++)
+                    for (int y = firstEmptyY; y < height; y++)
+                    {
+                        AddRefillTile(x, y, height + y - firstEmptyY, moves);
+                    }
+                }
+                else
                 {
-                    Vector2Int coordinate = new Vector2Int(x, y);
-                    int spawnY = height + y - firstEmptyY;
-                    Vector3 spawnPosition = GetWorldPosition(new Vector2Int(x, spawnY));
-                    Vector3 destination = GetWorldPosition(coordinate);
-                    TilePoolEntry definition = TilePool.PickRandom(random, activeTilePool);
-                    TileView tile = CreateTile(coordinate, definition, spawnPosition);
-                    tiles[x, y] = tile;
-                    moves.Add(new FallMove(tile, spawnPosition, destination, spawnY - y));
+                    int lastEmptyY = height - 1;
+                    while (lastEmptyY >= 0 && tiles[x, lastEmptyY] != null)
+                    {
+                        lastEmptyY--;
+                    }
+
+                    for (int y = lastEmptyY; y >= 0; y--)
+                    {
+                        int spawnY = y - lastEmptyY - 1;
+                        AddRefillTile(x, y, spawnY, moves);
+                    }
                 }
             }
 
@@ -1375,6 +1570,17 @@ namespace GameMatch3.Gameplay.Board
                     move.Tile.transform.position = move.End;
                 }
             }
+        }
+
+        private void AddRefillTile(int x, int y, int spawnY, List<FallMove> moves)
+        {
+            Vector2Int coordinate = new Vector2Int(x, y);
+            Vector3 spawnPosition = GetWorldPosition(new Vector2Int(x, spawnY));
+            Vector3 destination = GetWorldPosition(coordinate);
+            TilePoolEntry definition = TilePool.PickRandom(random, activeTilePool);
+            TileView tile = CreateTile(coordinate, definition, spawnPosition);
+            tiles[x, y] = tile;
+            moves.Add(new FallMove(tile, spawnPosition, destination, Mathf.Abs(spawnY - y)));
         }
 
         private readonly struct ShuffleMove

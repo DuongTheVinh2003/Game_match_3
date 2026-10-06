@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using GameMatch3.Gameplay.Board.Bot;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEditor.UIElements;
@@ -525,10 +526,18 @@ namespace GameMatch3.Gameplay.Board.Editor
                     draft.LevelNumber,
                     draft.Width,
                     draft.Height,
-                    draft.ObjectCount,
                     spawns,
                     draft.Moves,
-                    draft.TargetScore);
+                    draft.TargetScore,
+                    draft.PlayerMaxHealth,
+                    draft.BotMaxHealth,
+                    draft.ScoreToDamageMultiplier,
+                    draft.BotDifficulty,
+                    draft.BotThinkingTimeMin,
+                    draft.BotThinkingTimeMax,
+                    draft.BotMoveTieBreak,
+                    draft.PlayerRefillDirection,
+                    draft.BotRefillDirection);
                 string assetPath = AssetDatabase.GenerateUniqueAssetPath(
                     $"{GetModeFolder(draft.Mode)}/Level_{draft.LevelNumber:000}.asset");
                 AssetDatabase.CreateAsset(currentAsset, assetPath);
@@ -541,10 +550,18 @@ namespace GameMatch3.Gameplay.Board.Editor
                     draft.LevelNumber,
                     draft.Width,
                     draft.Height,
-                    draft.ObjectCount,
                     spawns,
                     draft.Moves,
-                    draft.TargetScore);
+                    draft.TargetScore,
+                    draft.PlayerMaxHealth,
+                    draft.BotMaxHealth,
+                    draft.ScoreToDamageMultiplier,
+                    draft.BotDifficulty,
+                    draft.BotThinkingTimeMin,
+                    draft.BotThinkingTimeMax,
+                    draft.BotMoveTieBreak,
+                    draft.PlayerRefillDirection,
+                    draft.BotRefillDirection);
                 EditorUtility.SetDirty(currentAsset);
             }
 
@@ -607,14 +624,9 @@ namespace GameMatch3.Gameplay.Board.Editor
                 errors.Add("Board Width and Height must be between 5 and 12.");
             }
 
-            if (draft.ObjectCount < 2 || draft.ObjectCount > catalog.Count)
+            if (draft.SelectedTypes.Count < 2)
             {
-                errors.Add($"Object Count must be between 2 and {catalog.Count}.");
-            }
-
-            if (draft.SelectedTypes.Count != draft.ObjectCount)
-            {
-                errors.Add($"Select exactly {draft.ObjectCount} objects (currently {draft.SelectedTypes.Count}).");
+                errors.Add("Select at least 2 objects so the board can generate playable matches.");
             }
 
             foreach (TileTypeId typeId in draft.SelectedTypes)
@@ -625,14 +637,32 @@ namespace GameMatch3.Gameplay.Board.Editor
                 }
             }
 
-            if (draft.Moves <= 0)
+            if (draft.Mode == LevelMode.Classic && draft.Moves <= 0)
             {
                 errors.Add("Moves must be a positive integer.");
             }
 
-            if (draft.TargetScore <= 0)
+            if (draft.Mode == LevelMode.Classic && draft.TargetScore <= 0)
             {
                 errors.Add("Target Score must be a positive integer.");
+            }
+
+            if (draft.Mode == LevelMode.Pve)
+            {
+                if (draft.PlayerMaxHealth <= 0 || draft.BotMaxHealth <= 0)
+                {
+                    errors.Add("Player HP and Bot HP must be positive integers.");
+                }
+
+                if (draft.ScoreToDamageMultiplier <= 0f)
+                {
+                    errors.Add("Score To Damage Multiplier must be greater than 0.");
+                }
+
+                if (draft.BotThinkingTimeMin < 0f || draft.BotThinkingTimeMax < draft.BotThinkingTimeMin)
+                {
+                    errors.Add("Bot Thinking Max must be greater than or equal to Min, and both must be non-negative.");
+                }
             }
 
             return errors;
@@ -709,25 +739,7 @@ namespace GameMatch3.Gameplay.Board.Editor
             tabContent.Add(heightField);
 
             tabContent.Add(CreateSectionTitle("Objects"));
-            IntegerField objectCountField = new IntegerField("Object Count") { isDelayed = true };
-            objectCountField.SetValueWithoutNotify(draft.ObjectCount);
-            objectCountField.RegisterValueChangedCallback(change =>
-            {
-                int value = Mathf.Max(1, change.newValue);
-                if (value >= catalog.Count)
-                {
-                    value = catalog.Count;
-                }
-
-                objectCountField.SetValueWithoutNotify(value);
-                draft.ObjectCount = value;
-                TrimSelectedObjects();
-                MarkDirty();
-                BuildDetails();
-            });
-            tabContent.Add(objectCountField);
-
-            Label selectedLabel = new Label($"Available Objects — selected {draft.SelectedTypes.Count}/{draft.ObjectCount}");
+            Label selectedLabel = new Label($"Available Objects — selected {draft.SelectedTypes.Count}");
             selectedLabel.style.unityFontStyleAndWeight = FontStyle.Bold;
             selectedLabel.style.marginTop = 8f;
             tabContent.Add(selectedLabel);
@@ -742,13 +754,6 @@ namespace GameMatch3.Gameplay.Board.Editor
                 {
                     if (change.newValue)
                     {
-                        if (draft.SelectedTypes.Count >= draft.ObjectCount)
-                        {
-                            toggle.SetValueWithoutNotify(false);
-                            ShowNotification(new GUIContent($"Only {draft.ObjectCount} objects can be selected"));
-                            return;
-                        }
-
                         draft.SelectedTypes.Add(entry.TypeId);
                         if (!draft.Weights.ContainsKey(entry.TypeId))
                         {
@@ -803,14 +808,72 @@ namespace GameMatch3.Gameplay.Board.Editor
         private void BuildChallengeTab()
         {
             tabContent.Add(CreateSectionTitle("Challenge"));
-            tabContent.Add(CreateIntegerField("Moves", draft.Moves, value => draft.Moves = value));
-            tabContent.Add(CreateIntegerField("Target Score", draft.TargetScore, value => draft.TargetScore = value));
+            if (draft.Mode == LevelMode.Classic)
+            {
+                tabContent.Add(CreateIntegerField("Moves", draft.Moves, value => draft.Moves = value));
+                tabContent.Add(CreateIntegerField("Target Score", draft.TargetScore, value => draft.TargetScore = value));
+                return;
+            }
+
+            tabContent.Add(CreateIntegerField("Player Max HP", draft.PlayerMaxHealth, value => draft.PlayerMaxHealth = value));
+            tabContent.Add(CreateIntegerField("Bot Max HP", draft.BotMaxHealth, value => draft.BotMaxHealth = value));
+            tabContent.Add(CreateFloatField(
+                "Score To Damage Multiplier",
+                draft.ScoreToDamageMultiplier,
+                value => draft.ScoreToDamageMultiplier = value));
+            tabContent.Add(CreateEnumField(
+                "Bot Difficulty",
+                draft.BotDifficulty,
+                value => draft.BotDifficulty = (PveBotDifficulty)value));
+            tabContent.Add(CreateFloatField(
+                "Thinking Time Min",
+                draft.BotThinkingTimeMin,
+                value => draft.BotThinkingTimeMin = value));
+            tabContent.Add(CreateFloatField(
+                "Thinking Time Max",
+                draft.BotThinkingTimeMax,
+                value => draft.BotThinkingTimeMax = value));
+            tabContent.Add(CreateEnumField(
+                "Equal Move Tie Break",
+                draft.BotMoveTieBreak,
+                value => draft.BotMoveTieBreak = (PveMoveTieBreak)value));
+            tabContent.Add(CreateEnumField(
+                "Player Refill Direction",
+                draft.PlayerRefillDirection,
+                value => draft.PlayerRefillDirection = (PveRefillDirection)value));
+            tabContent.Add(CreateEnumField(
+                "Bot Refill Direction",
+                draft.BotRefillDirection,
+                value => draft.BotRefillDirection = (PveRefillDirection)value));
         }
 
         private IntegerField CreateIntegerField(string label, int value, Action<int> setter)
         {
             IntegerField field = new IntegerField(label) { isDelayed = true };
             field.SetValueWithoutNotify(value);
+            field.RegisterValueChangedCallback(change =>
+            {
+                setter(change.newValue);
+                MarkDirty();
+            });
+            return field;
+        }
+
+        private FloatField CreateFloatField(string label, float value, Action<float> setter)
+        {
+            FloatField field = new FloatField(label) { isDelayed = true };
+            field.SetValueWithoutNotify(value);
+            field.RegisterValueChangedCallback(change =>
+            {
+                setter(change.newValue);
+                MarkDirty();
+            });
+            return field;
+        }
+
+        private EnumField CreateEnumField(string label, Enum value, Action<Enum> setter)
+        {
+            EnumField field = new EnumField(label, value);
             field.RegisterValueChangedCallback(change =>
             {
                 setter(change.newValue);
@@ -853,14 +916,6 @@ namespace GameMatch3.Gameplay.Board.Editor
 
             row.Add(preview);
             return row;
-        }
-
-        private void TrimSelectedObjects()
-        {
-            while (draft.SelectedTypes.Count > draft.ObjectCount)
-            {
-                draft.SelectedTypes.RemoveAt(draft.SelectedTypes.Count - 1);
-            }
         }
 
         private void MarkDirty()
@@ -978,11 +1033,19 @@ namespace GameMatch3.Gameplay.Board.Editor
             public int LevelNumber;
             public int Width;
             public int Height;
-            public int ObjectCount;
             public readonly List<TileTypeId> SelectedTypes = new List<TileTypeId>();
             public readonly Dictionary<TileTypeId, float> Weights = new Dictionary<TileTypeId, float>();
             public int Moves;
             public int TargetScore;
+            public int PlayerMaxHealth;
+            public int BotMaxHealth;
+            public float ScoreToDamageMultiplier;
+            public PveBotDifficulty BotDifficulty;
+            public float BotThinkingTimeMin;
+            public float BotThinkingTimeMax;
+            public PveMoveTieBreak BotMoveTieBreak;
+            public PveRefillDirection PlayerRefillDirection;
+            public PveRefillDirection BotRefillDirection;
 
             public static LevelDraft CreateDefault(
                 int levelNumber,
@@ -995,12 +1058,21 @@ namespace GameMatch3.Gameplay.Board.Editor
                     LevelNumber = levelNumber,
                     Width = LevelData.DefaultBoardWidth,
                     Height = LevelData.DefaultBoardHeight,
-                    ObjectCount = Mathf.Min(LevelData.DefaultObjectCount, entries.Count),
                     Moves = LevelData.DefaultMoves,
-                    TargetScore = LevelData.DefaultTargetScore
+                    TargetScore = LevelData.DefaultTargetScore,
+                    PlayerMaxHealth = LevelData.DefaultPveHealth,
+                    BotMaxHealth = LevelData.DefaultPveHealth,
+                    ScoreToDamageMultiplier = 1f,
+                    BotDifficulty = PveBotDifficulty.FirstValidMove,
+                    BotThinkingTimeMin = 0.5f,
+                    BotThinkingTimeMax = 1.2f,
+                    BotMoveTieBreak = PveMoveTieBreak.RandomAmongBest,
+                    PlayerRefillDirection = PveRefillDirection.FromTop,
+                    BotRefillDirection = PveRefillDirection.FromBottom
                 };
 
-                for (int i = 0; i < result.ObjectCount; i++)
+                int initialObjectCount = Mathf.Min(LevelData.DefaultObjectCount, entries.Count);
+                for (int i = 0; i < initialObjectCount; i++)
                 {
                     result.SelectedTypes.Add(entries[i].TypeId);
                     result.Weights[entries[i].TypeId] = 1f;
@@ -1017,9 +1089,17 @@ namespace GameMatch3.Gameplay.Board.Editor
                     LevelNumber = level.LevelNumber,
                     Width = level.BoardWidth,
                     Height = level.BoardHeight,
-                    ObjectCount = level.ObjectCount,
                     Moves = level.StartingMoves,
-                    TargetScore = level.TargetScore
+                    TargetScore = level.TargetScore,
+                    PlayerMaxHealth = level.PlayerMaxHealth,
+                    BotMaxHealth = level.BotMaxHealth,
+                    ScoreToDamageMultiplier = level.ScoreToDamageMultiplier,
+                    BotDifficulty = level.BotSettings.Difficulty,
+                    BotThinkingTimeMin = level.BotSettings.ThinkingTimeMin,
+                    BotThinkingTimeMax = level.BotSettings.ThinkingTimeMax,
+                    BotMoveTieBreak = level.BotSettings.MoveTieBreak,
+                    PlayerRefillDirection = level.PlayerRefillDirection,
+                    BotRefillDirection = level.BotRefillDirection
                 };
 
                 foreach (LevelObjectSpawn entry in level.Objects)
