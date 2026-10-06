@@ -68,6 +68,7 @@ namespace GameMatch3.Gameplay.Board
         public bool IsLevelFinished => isLevelFinished;
         public LevelResult Result => levelResult;
         public LevelData AssignedLevelData => levelData;
+        public event System.Action<LevelResult> LevelFinished;
         public IReadOnlyList<TilePoolEntry> TileCatalog
         {
             get
@@ -81,6 +82,13 @@ namespace GameMatch3.Gameplay.Board
         {
             // Dựng lại board mỗi khi Scene hoặc component được nạp.
             RebuildBoard();
+        }
+
+        private void OnDisable()
+        {
+            // HUD dùng Screen Space Overlay nên phải đứng ở scene root. Dọn riêng khi
+            // board bị tắt/xóa để không để lại một Canvas mồ côi trong Scene/Game View.
+            DestroyHud();
         }
 
         private void OnValidate()
@@ -232,11 +240,15 @@ namespace GameMatch3.Gameplay.Board
         private void CreateHud()
         {
             GameObject hudObject = new GameObject(
-                "LevelHUD",
+                $"LevelHUD_{GetInstanceID()}",
                 typeof(RectTransform),
                 typeof(Canvas),
                 typeof(UnityEngine.UI.CanvasScaler));
-            hudObject.transform.SetParent(transform, false);
+
+            // Screen Space Overlay Canvas phải là root object. Khi đặt Canvas làm con
+            // của board world-space, RectTransform kế thừa offset của board/camera và
+            // toàn bộ HUD bị đẩy ra ngoài mép trái ở các tỉ lệ Game View khác nhau.
+            hudObject.transform.SetParent(null, false);
             SetEditorPreviewFlags(hudObject);
             boardHud = hudObject.AddComponent<BoardHud>();
             boardHud.Build(
@@ -1005,6 +1017,7 @@ namespace GameMatch3.Gameplay.Board
                 Debug.Log(
                     $"Level {CurrentLevelNumber} complete. Score: {currentScore}.",
                     this);
+                LevelFinished?.Invoke(levelResult);
                 return true;
             }
 
@@ -1015,6 +1028,7 @@ namespace GameMatch3.Gameplay.Board
                 Debug.Log(
                     $"Level {CurrentLevelNumber} failed. Score: {currentScore}/{CurrentTargetScore}.",
                     this);
+                LevelFinished?.Invoke(levelResult);
                 return true;
             }
 
@@ -1440,6 +1454,8 @@ namespace GameMatch3.Gameplay.Board
         private void ClearGeneratedBoard()
         {
             // Xóa các object tạo tự động trước khi dựng preview khác, tránh chồng nhiều board.
+            DestroyHud();
+
             for (int i = transform.childCount - 1; i >= 0; i--)
             {
                 GameObject child = transform.GetChild(i).gameObject;
@@ -1476,6 +1492,25 @@ namespace GameMatch3.Gameplay.Board
             ellipseSprite = null;
             pentagonSprite = null;
             hexagonSprite = null;
+        }
+
+        private void DestroyHud()
+        {
+            if (boardHud == null)
+            {
+                return;
+            }
+
+            GameObject hudObject = boardHud.gameObject;
+            boardHud = null;
+            if (Application.isPlaying)
+            {
+                Destroy(hudObject);
+            }
+            else
+            {
+                DestroyImmediate(hudObject);
+            }
         }
 
         private static void SetEditorPreviewFlags(GameObject gameObject)

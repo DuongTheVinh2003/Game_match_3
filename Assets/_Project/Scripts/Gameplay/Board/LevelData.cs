@@ -4,6 +4,12 @@ using UnityEngine;
 
 namespace GameMatch3.Gameplay.Board
 {
+    public enum LevelMode
+    {
+        Classic = 0,
+        Pve = 1
+    }
+
     [Serializable]
     public sealed class LevelObjectSpawn
     {
@@ -30,6 +36,7 @@ namespace GameMatch3.Gameplay.Board
         public const int DefaultMoves = 18;
         public const int DefaultTargetScore = 4000;
 
+        [SerializeField] private LevelMode mode = LevelMode.Classic;
         [SerializeField, Min(1)] private int levelNumber = 1;
         [SerializeField] private int boardWidth = DefaultBoardWidth;
         [SerializeField] private int boardHeight = DefaultBoardHeight;
@@ -38,6 +45,7 @@ namespace GameMatch3.Gameplay.Board
         [SerializeField] private int startingMoves = DefaultMoves;
         [SerializeField] private int targetScore = DefaultTargetScore;
 
+        public LevelMode Mode => mode;
         public int LevelNumber => levelNumber;
         public int BoardWidth => boardWidth;
         public int BoardHeight => boardHeight;
@@ -47,6 +55,7 @@ namespace GameMatch3.Gameplay.Board
         public int TargetScore => targetScore;
 
         public void Configure(
+            LevelMode newMode,
             int newLevelNumber,
             int newBoardWidth,
             int newBoardHeight,
@@ -55,6 +64,7 @@ namespace GameMatch3.Gameplay.Board
             int newStartingMoves,
             int newTargetScore)
         {
+            mode = newMode;
             levelNumber = newLevelNumber;
             boardWidth = newBoardWidth;
             boardHeight = newBoardHeight;
@@ -71,6 +81,7 @@ namespace GameMatch3.Gameplay.Board
         public void ResetToDefaults(int newLevelNumber)
         {
             Configure(
+                mode,
                 newLevelNumber,
                 DefaultBoardWidth,
                 DefaultBoardHeight,

@@ -18,6 +18,15 @@ namespace GameMatch3.Gameplay.Board
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             canvas.sortingOrder = 100;
 
+            // Giữ Canvas phủ đúng toàn bộ viewport. Các panel bên dưới sẽ luôn lấy
+            // góc trên-trái thật của màn hình làm mốc thay vì một rect 100x100 mặc định.
+            RectTransform canvasRect = (RectTransform)transform;
+            canvasRect.anchorMin = Vector2.zero;
+            canvasRect.anchorMax = Vector2.one;
+            canvasRect.offsetMin = Vector2.zero;
+            canvasRect.offsetMax = Vector2.zero;
+            canvasRect.localScale = Vector3.one;
+
             CanvasScaler scaler = GetComponent<CanvasScaler>();
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
             scaler.referenceResolution = new Vector2(1920f, 1080f);

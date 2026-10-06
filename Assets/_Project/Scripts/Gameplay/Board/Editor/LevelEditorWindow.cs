@@ -12,12 +12,18 @@ namespace GameMatch3.Gameplay.Board.Editor
     public sealed class LevelEditorWindow : EditorWindow
     {
         private const string LevelFolder = "Assets/_Project/Levels";
+        private const string ResourcesFolder = "Assets/_Project/Resources";
+        private const string RuntimeCatalogPath = ResourcesFolder + "/LevelCatalog.asset";
 
+        private readonly List<LevelData> allLevels = new List<LevelData>();
         private readonly List<LevelData> levels = new List<LevelData>();
         private readonly List<TilePoolEntry> catalog = new List<TilePoolEntry>();
 
         private ListView levelList;
         private Label levelCountLabel;
+        private Label listTitle;
+        private Button classicModeButton;
+        private Button pveModeButton;
         private VisualElement detailsRoot;
         private VisualElement tabContent;
         private Button deleteButton;
@@ -30,6 +36,7 @@ namespace GameMatch3.Gameplay.Board.Editor
         private bool isBuildingUi;
         private bool suppressSelection;
         private int activeTab;
+        private LevelMode activeMode = LevelMode.Classic;
 
         [MenuItem("Window/Game Match 3/Level Editor")]
         public static void ShowWindow()
@@ -40,9 +47,21 @@ namespace GameMatch3.Gameplay.Board.Editor
             window.Show();
         }
 
+        [InitializeOnLoadMethod]
+        private static void ScheduleCatalogSync()
+        {
+            EditorApplication.delayCall += SyncRuntimeCatalogFromAssets;
+        }
+
         public void CreateGUI()
         {
             LoadCatalog();
+            BoardController board = FindBoardController();
+            if (board != null && board.AssignedLevelData != null)
+            {
+                activeMode = board.AssignedLevelData.Mode;
+            }
+
             BuildWindow();
             RefreshLevels();
             RestoreAssignedLevel();
@@ -83,7 +102,20 @@ namespace GameMatch3.Gameplay.Board.Editor
             listPane.style.paddingBottom = 8f;
             split.Add(listPane);
 
-            Label listTitle = new Label("LEVELS");
+            VisualElement modeSelector = new VisualElement();
+            modeSelector.style.flexDirection = FlexDirection.Row;
+            modeSelector.style.marginBottom = 10f;
+            classicModeButton = new Button(() => SwitchMode(LevelMode.Classic));
+            pveModeButton = new Button(() => SwitchMode(LevelMode.Pve));
+            classicModeButton.style.flexGrow = 1f;
+            pveModeButton.style.flexGrow = 1f;
+            classicModeButton.style.height = 30f;
+            pveModeButton.style.height = 30f;
+            modeSelector.Add(classicModeButton);
+            modeSelector.Add(pveModeButton);
+            listPane.Add(modeSelector);
+
+            listTitle = new Label();
             listTitle.style.unityFontStyleAndWeight = FontStyle.Bold;
             listTitle.style.fontSize = 14f;
             listPane.Add(listTitle);
@@ -144,6 +176,7 @@ namespace GameMatch3.Gameplay.Board.Editor
 
         private void RefreshLevels()
         {
+            allLevels.Clear();
             levels.Clear();
             string[] guids = AssetDatabase.FindAssets("t:LevelData", new[] { LevelFolder });
             foreach (string guid in guids)
@@ -151,14 +184,74 @@ namespace GameMatch3.Gameplay.Board.Editor
                 LevelData level = AssetDatabase.LoadAssetAtPath<LevelData>(AssetDatabase.GUIDToAssetPath(guid));
                 if (level != null)
                 {
-                    levels.Add(level);
+                    allLevels.Add(level);
+                    if (level.Mode == activeMode)
+                    {
+                        levels.Add(level);
+                    }
                 }
             }
 
             levels.Sort((first, second) => first.LevelNumber.CompareTo(second.LevelNumber));
+            SyncRuntimeCatalog(allLevels);
             levelList.itemsSource = levels;
             levelList.Rebuild();
             levelCountLabel.text = levels.Count == 1 ? "1 level" : $"{levels.Count} levels";
+            UpdateModeButtons();
+        }
+
+        private void SwitchMode(LevelMode mode)
+        {
+            if (mode == activeMode)
+            {
+                return;
+            }
+
+            if (!CanLeaveCurrentLevel())
+            {
+                return;
+            }
+
+            activeMode = mode;
+            currentAsset = null;
+            draft = null;
+            isDirty = false;
+            activeTab = 0;
+            RefreshLevels();
+            levelList.ClearSelection();
+            ShowEmptyState();
+        }
+
+        private void UpdateModeButtons()
+        {
+            int classicCount = allLevels.Count(level => level.Mode == LevelMode.Classic);
+            int pveCount = allLevels.Count(level => level.Mode == LevelMode.Pve);
+            if (classicModeButton != null)
+            {
+                classicModeButton.text = $"CLASSIC ({classicCount})";
+                classicModeButton.style.backgroundColor = activeMode == LevelMode.Classic
+                    ? new Color(0.25f, 0.48f, 0.72f)
+                    : StyleKeyword.Null;
+                classicModeButton.style.unityFontStyleAndWeight = activeMode == LevelMode.Classic
+                    ? FontStyle.Bold
+                    : FontStyle.Normal;
+            }
+
+            if (pveModeButton != null)
+            {
+                pveModeButton.text = $"PVE ({pveCount})";
+                pveModeButton.style.backgroundColor = activeMode == LevelMode.Pve
+                    ? new Color(0.25f, 0.48f, 0.72f)
+                    : StyleKeyword.Null;
+                pveModeButton.style.unityFontStyleAndWeight = activeMode == LevelMode.Pve
+                    ? FontStyle.Bold
+                    : FontStyle.Normal;
+            }
+
+            if (listTitle != null)
+            {
+                listTitle.text = activeMode == LevelMode.Classic ? "CLASSIC LEVELS" : "PVE LEVELS";
+            }
         }
 
         private void BindLevelListItem(VisualElement element, int index)
@@ -282,12 +375,14 @@ namespace GameMatch3.Gameplay.Board.Editor
 
         private void LoadLevel(LevelData level)
         {
+            activeMode = level.Mode;
             currentAsset = level;
             draft = LevelDraft.FromAsset(level);
             isDirty = false;
             activeTab = 0;
             BuildDetails();
             UpdateActionButtons();
+            UpdateModeButtons();
         }
 
         private void AddLevel()
@@ -298,7 +393,7 @@ namespace GameMatch3.Gameplay.Board.Editor
             }
 
             currentAsset = null;
-            draft = LevelDraft.CreateDefault(GetNextLevelNumber(), catalog);
+            draft = LevelDraft.CreateDefault(GetNextLevelNumber(), catalog, activeMode);
             isDirty = true;
             activeTab = 0;
             suppressSelection = true;
@@ -366,7 +461,7 @@ namespace GameMatch3.Gameplay.Board.Editor
                 return;
             }
 
-            draft = LevelDraft.CreateDefault(draft.LevelNumber, catalog);
+            draft = LevelDraft.CreateDefault(draft.LevelNumber, catalog, draft.Mode);
             MarkDirty();
             BuildDetails();
         }
@@ -417,7 +512,7 @@ namespace GameMatch3.Gameplay.Board.Editor
                 return false;
             }
 
-            EnsureLevelFolder();
+            EnsureLevelFolder(draft.Mode);
             List<LevelObjectSpawn> spawns = draft.SelectedTypes
                 .Select(typeId => new LevelObjectSpawn(typeId, draft.Weights[typeId]))
                 .ToList();
@@ -426,6 +521,7 @@ namespace GameMatch3.Gameplay.Board.Editor
             {
                 currentAsset = CreateInstance<LevelData>();
                 currentAsset.Configure(
+                    draft.Mode,
                     draft.LevelNumber,
                     draft.Width,
                     draft.Height,
@@ -434,13 +530,14 @@ namespace GameMatch3.Gameplay.Board.Editor
                     draft.Moves,
                     draft.TargetScore);
                 string assetPath = AssetDatabase.GenerateUniqueAssetPath(
-                    $"{LevelFolder}/Level_{draft.LevelNumber:000}.asset");
+                    $"{GetModeFolder(draft.Mode)}/Level_{draft.LevelNumber:000}.asset");
                 AssetDatabase.CreateAsset(currentAsset, assetPath);
             }
             else
             {
                 Undo.RecordObject(currentAsset, "Apply Level Configuration");
                 currentAsset.Configure(
+                    draft.Mode,
                     draft.LevelNumber,
                     draft.Width,
                     draft.Height,
@@ -547,8 +644,8 @@ namespace GameMatch3.Gameplay.Board.Editor
             detailsRoot.Clear();
 
             Label heading = new Label(currentAsset == null
-                ? $"New Level {draft.LevelNumber:000}"
-                : $"Level {draft.LevelNumber:000}");
+                ? $"{GetModeLabel(draft.Mode)} — New Level {draft.LevelNumber:000}"
+                : $"{GetModeLabel(draft.Mode)} — Level {draft.LevelNumber:000}");
             heading.style.fontSize = 22f;
             heading.style.unityFontStyleAndWeight = FontStyle.Bold;
             heading.style.marginBottom = 8f;
@@ -810,7 +907,17 @@ namespace GameMatch3.Gameplay.Board.Editor
             return UnityEngine.Object.FindObjectOfType<BoardController>();
         }
 
-        private static void EnsureLevelFolder()
+        private static string GetModeLabel(LevelMode mode)
+        {
+            return mode == LevelMode.Classic ? "Classic" : "PVE";
+        }
+
+        private static string GetModeFolder(LevelMode mode)
+        {
+            return $"{LevelFolder}/{GetModeLabel(mode)}";
+        }
+
+        private static void EnsureLevelFolder(LevelMode mode)
         {
             if (!AssetDatabase.IsValidFolder("Assets/_Project"))
             {
@@ -821,10 +928,53 @@ namespace GameMatch3.Gameplay.Board.Editor
             {
                 AssetDatabase.CreateFolder("Assets/_Project", "Levels");
             }
+
+            string modeFolder = GetModeFolder(mode);
+            if (!AssetDatabase.IsValidFolder(modeFolder))
+            {
+                AssetDatabase.CreateFolder(LevelFolder, GetModeLabel(mode));
+            }
+        }
+
+        private static void SyncRuntimeCatalogFromAssets()
+        {
+            string[] guids = AssetDatabase.FindAssets("t:LevelData", new[] { LevelFolder });
+            List<LevelData> assets = new List<LevelData>();
+            foreach (string guid in guids)
+            {
+                LevelData level = AssetDatabase.LoadAssetAtPath<LevelData>(
+                    AssetDatabase.GUIDToAssetPath(guid));
+                if (level != null)
+                {
+                    assets.Add(level);
+                }
+            }
+
+            SyncRuntimeCatalog(assets);
+        }
+
+        private static void SyncRuntimeCatalog(IEnumerable<LevelData> assets)
+        {
+            if (!AssetDatabase.IsValidFolder(ResourcesFolder))
+            {
+                AssetDatabase.CreateFolder("Assets/_Project", "Resources");
+            }
+
+            LevelCatalog runtimeCatalog = AssetDatabase.LoadAssetAtPath<LevelCatalog>(RuntimeCatalogPath);
+            if (runtimeCatalog == null)
+            {
+                runtimeCatalog = CreateInstance<LevelCatalog>();
+                AssetDatabase.CreateAsset(runtimeCatalog, RuntimeCatalogPath);
+            }
+
+            runtimeCatalog.Configure(assets);
+            EditorUtility.SetDirty(runtimeCatalog);
+            AssetDatabase.SaveAssetIfDirty(runtimeCatalog);
         }
 
         private sealed class LevelDraft
         {
+            public LevelMode Mode;
             public int LevelNumber;
             public int Width;
             public int Height;
@@ -834,10 +984,14 @@ namespace GameMatch3.Gameplay.Board.Editor
             public int Moves;
             public int TargetScore;
 
-            public static LevelDraft CreateDefault(int levelNumber, IReadOnlyList<TilePoolEntry> entries)
+            public static LevelDraft CreateDefault(
+                int levelNumber,
+                IReadOnlyList<TilePoolEntry> entries,
+                LevelMode mode)
             {
                 LevelDraft result = new LevelDraft
                 {
+                    Mode = mode,
                     LevelNumber = levelNumber,
                     Width = LevelData.DefaultBoardWidth,
                     Height = LevelData.DefaultBoardHeight,
@@ -859,6 +1013,7 @@ namespace GameMatch3.Gameplay.Board.Editor
             {
                 LevelDraft result = new LevelDraft
                 {
+                    Mode = level.Mode,
                     LevelNumber = level.LevelNumber,
                     Width = level.BoardWidth,
                     Height = level.BoardHeight,
