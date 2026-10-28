@@ -739,7 +739,8 @@ namespace GameMatch3.Gameplay.Board.Editor
             tabContent.Add(heightField);
 
             tabContent.Add(CreateSectionTitle("Objects"));
-            Label selectedLabel = new Label($"Available Objects — selected {draft.SelectedTypes.Count}");
+            Label selectedLabel = new Label(
+                $"Active Pool — size {draft.SelectedTypes.Count}/{ZodiacArtCatalog.ZodiacTypeCount}");
             selectedLabel.style.unityFontStyleAndWeight = FontStyle.Bold;
             selectedLabel.style.marginTop = 8f;
             tabContent.Add(selectedLabel);
@@ -747,7 +748,7 @@ namespace GameMatch3.Gameplay.Board.Editor
             foreach (TilePoolEntry entry in catalog)
             {
                 VisualElement row = CreateObjectRow(entry);
-                Toggle toggle = new Toggle(entry.TypeId.ToString());
+                Toggle toggle = new Toggle($"{entry.DisplayName}  ({entry.TypeId})");
                 toggle.SetValueWithoutNotify(draft.SelectedTypes.Contains(entry.TypeId));
                 toggle.style.flexGrow = 1f;
                 toggle.RegisterValueChangedCallback(change =>
@@ -783,6 +784,9 @@ namespace GameMatch3.Gameplay.Board.Editor
                 {
                     TilePoolEntry entry = catalog.First(item => item.TypeId == typeId);
                     VisualElement row = CreateObjectRow(entry);
+                    Label objectName = new Label(entry.DisplayName);
+                    objectName.style.width = 92f;
+                    row.Add(objectName);
                     FloatField weightField = new FloatField("Ratio") { isDelayed = true };
                     weightField.style.flexGrow = 1f;
                     weightField.SetValueWithoutNotify(draft.Weights[typeId]);

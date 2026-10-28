@@ -27,8 +27,6 @@ MonoBehaviour:
     spawnWeight: 1
   - typeId: 5
     spawnWeight: 1
-  - typeId: 6
-    spawnWeight: 1
   startingMoves: 18
   targetScore: 4000
   playerMaxHealth: 1000

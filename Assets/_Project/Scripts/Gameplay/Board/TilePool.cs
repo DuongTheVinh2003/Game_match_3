@@ -12,12 +12,17 @@ namespace GameMatch3.Gameplay.Board
         [SerializeField, Min(0.01f)] private float spawnWeight = 1f;
         [SerializeField] private Color prototypeColor = Color.white;
         [SerializeField] private Sprite sprite = null;
+        [SerializeField] private Sprite idleBlinkSprite = null;
 
         public TileTypeId TypeId => typeId;
         public bool EnabledForLevel => enabledForLevel;
         public float SpawnWeight => Mathf.Max(0.01f, spawnWeight);
         public Color PrototypeColor => prototypeColor;
-        public Sprite Sprite => sprite;
+        public Sprite Sprite => sprite != null ? sprite : ZodiacArtCatalog.GetNormalSprite(typeId);
+        public Sprite IdleBlinkSprite => idleBlinkSprite != null
+            ? idleBlinkSprite
+            : ZodiacArtCatalog.GetBlinkSprite(typeId);
+        public string DisplayName => ZodiacArtCatalog.GetDisplayName(typeId);
 
         public TilePoolEntry(
             TileTypeId typeId,
@@ -39,11 +44,12 @@ namespace GameMatch3.Gameplay.Board
                 enabledForLevel,
                 newSpawnWeight);
             clone.sprite = sprite;
+            clone.idleBlinkSprite = idleBlinkSprite;
             return clone;
         }
     }
 
-    // Danh muc 10 loai tile va cau hinh pool dang dung cho level hien tai.
+    // Catalog of 12 zodiac tiles and the active pool for the current level.
     [Serializable]
     public sealed class TilePool
     {
@@ -72,7 +78,7 @@ namespace GameMatch3.Gameplay.Board
                 }
             }
 
-            List<TilePoolEntry> normalizedEntries = new List<TilePoolEntry>(10);
+            List<TilePoolEntry> normalizedEntries = new List<TilePoolEntry>(ZodiacArtCatalog.ZodiacTypeCount);
             foreach (TileTypeId typeId in Enum.GetValues(typeof(TileTypeId)))
             {
                 normalizedEntries.Add(currentEntries.TryGetValue(typeId, out TilePoolEntry entry)
@@ -85,7 +91,7 @@ namespace GameMatch3.Gameplay.Board
 
         private bool HasCompleteCatalog()
         {
-            if (entries == null || entries.Count != 10)
+            if (entries == null || entries.Count != ZodiacArtCatalog.ZodiacTypeCount)
             {
                 return false;
             }
@@ -101,7 +107,7 @@ namespace GameMatch3.Gameplay.Board
                 }
             }
 
-            return typeIds.Count == 10;
+            return typeIds.Count == ZodiacArtCatalog.ZodiacTypeCount;
         }
 
         public void GetActiveEntries(List<TilePoolEntry> results)
@@ -168,7 +174,7 @@ namespace GameMatch3.Gameplay.Board
 
         private static List<TilePoolEntry> CreateDefaultEntries()
         {
-            List<TilePoolEntry> defaults = new List<TilePoolEntry>(10);
+            List<TilePoolEntry> defaults = new List<TilePoolEntry>(ZodiacArtCatalog.ZodiacTypeCount);
             foreach (TileTypeId typeId in Enum.GetValues(typeof(TileTypeId)))
             {
                 defaults.Add(CreateDefaultEntry(typeId));
@@ -200,8 +206,12 @@ namespace GameMatch3.Gameplay.Board
                     return new TilePoolEntry(typeId, new Color(0.96f, 0.31f, 0.62f), enabledByDefault);
                 case TileTypeId.Tile09:
                     return new TilePoolEntry(typeId, new Color(0.60f, 0.82f, 0.13f), enabledByDefault);
+                case TileTypeId.Tile10:
+                    return new TilePoolEntry(typeId, new Color(1.00f, 0.78f, 0.12f), enabledByDefault);
+                case TileTypeId.Tile11:
+                    return new TilePoolEntry(typeId, new Color(0.12f, 0.25f, 0.60f), enabledByDefault);
                 default:
-                    return new TilePoolEntry(typeId, new Color(0.55f, 0.34f, 0.20f), enabledByDefault);
+                    return new TilePoolEntry(typeId, new Color(0.96f, 0.50f, 0.62f), enabledByDefault);
             }
         }
     }

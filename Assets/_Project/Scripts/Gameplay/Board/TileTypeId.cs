@@ -1,6 +1,6 @@
 namespace GameMatch3.Gameplay.Board
 {
-    // ID logic on dinh cua 10 loai tile. Gia tri khong duoc doi sau khi da co level/save data.
+    // Stable logical IDs for the 12 Vietnamese zodiac tiles. Existing values must not change.
     public enum TileTypeId
     {
         Tile01 = 1,
@@ -12,6 +12,8 @@ namespace GameMatch3.Gameplay.Board
         Tile07 = 7,
         Tile08 = 8,
         Tile09 = 9,
-        Tile10 = 10
+        Tile10 = 10,
+        Tile11 = 11,
+        Tile12 = 12
     }
 }

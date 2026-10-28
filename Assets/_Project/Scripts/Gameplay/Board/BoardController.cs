@@ -34,6 +34,9 @@ namespace GameMatch3.Gameplay.Board
         [SerializeField, Min(0f)] private float leftHudReservedWidth = 3f;
         [SerializeField] private int previewSeed = 12345;
 
+        [Header("Zodiac Tile Animation")]
+        [SerializeField] private TileAnimationConfig tileAnimation = new TileAnimationConfig();
+
         [Header("Tile Pool")]
         [SerializeField] private TilePool tilePool = new TilePool();
 
@@ -54,7 +57,8 @@ namespace GameMatch3.Gameplay.Board
         private bool isSwapping;
         private float lastCameraAspect = -1f;
         private System.Random random;
-        private readonly List<TilePoolEntry> activeTilePool = new List<TilePoolEntry>(10);
+        private readonly List<TilePoolEntry> activeTilePool =
+            new List<TilePoolEntry>(ZodiacArtCatalog.ZodiacTypeCount);
         private int nextTileInstanceId;
         private BoardHud boardHud;
         private int currentScore;
@@ -129,6 +133,11 @@ namespace GameMatch3.Gameplay.Board
             if (levelSettings == null)
             {
                 levelSettings = new LevelSettings();
+            }
+
+            if (tileAnimation == null)
+            {
+                tileAnimation = new TileAnimationConfig();
             }
 
             tilePool.EnsureCompleteCatalog();
@@ -432,7 +441,7 @@ namespace GameMatch3.Gameplay.Board
 
             TileView tile = tileObject.AddComponent<TileView>();
             Tile tileData = new Tile(nextTileInstanceId++, definition.TypeId, coordinate);
-            tile.Initialize(tileData, definition, squareSprite);
+            tile.Initialize(tileData, definition, squareSprite, tileAnimation);
             return tile;
         }
 
@@ -476,6 +485,10 @@ namespace GameMatch3.Gameplay.Board
             {
                 pointerStartWorld = ScreenToWorld(downScreenPosition);
                 pointerStartedOnBoard = TryWorldToCell(pointerStartWorld, out pointerStartCell);
+                if (pointerStartedOnBoard)
+                {
+                    tiles[pointerStartCell.x, pointerStartCell.y]?.PlaySelected();
+                }
             }
 
             if (pointerStartedOnBoard && TryGetPointerUp(out Vector2 upScreenPosition))
@@ -502,6 +515,7 @@ namespace GameMatch3.Gameplay.Board
             PveTurn actingTurn = currentTurn;
             scoreEarnedThisMove = 0;
             isSwapping = true;
+            tiles[first.x, first.y]?.PlaySelected();
             yield return AnimateSwap(first, second);
             SwapTileData(first, second);
 
@@ -1390,11 +1404,13 @@ namespace GameMatch3.Gameplay.Board
             while (elapsed < clearDuration)
             {
                 elapsed += Time.deltaTime;
-                float scale = 1f - Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(elapsed / clearDuration));
+                float progress = Mathf.Clamp01(elapsed / clearDuration);
+                float scale = 1f - Mathf.SmoothStep(0f, 1f, progress);
                 foreach (TileView tile in matches)
                 {
                     if (tile != null)
                     {
+                        tile.SetDestroyProgress(progress);
                         tile.transform.localScale = Vector3.one * (cellSize * tileScale * scale);
                     }
                 }

@@ -17,10 +17,11 @@ namespace GameMatch3.Gameplay.Board.Editor
                 "Board hỗ trợ từ 5 x 5 đến 12 x 12. Cell Size mặc định là 1. " +
                 "Camera tự căn để luôn nhìn trọn board và chừa phần bên trái cho HUD tương lai. " +
                 "Preview hiển thị ngay trong Scene. " +
-                "Tile Pool luôn có 10 Type ID; bật loại dùng cho level, chỉnh Spawn Weight, " +
-                "màu prototype và sprite 2D tại đây. Một level cần bật ít nhất 2 Type ID. " +
+                "Tile Pool có đủ 12 con giáp Việt Nam; level chọn tập tile hoạt động và Spawn Weight " +
+                "trong Level Editor. Số tile được chọn chính là Pool Size và một level cần ít nhất 2 loại. " +
+                "Idle, blink, selected và destroy có thể tinh chỉnh trong Zodiac Tile Animation. " +
                 "Bàn đầu có ít nhất 2 nước hợp lệ; dead-board sẽ tự xáo mà không tạo object mới. " +
-                "Special Object tạm dùng elip (Match-4/2x2), ngũ giác (Wrapped) và lục giác (Color Bomb). " +
+                "Special dùng mũ quan + hào quang cho Match-4, pháo hoa cho T/L và giáp cho Match-5. " +
                 "Level, Board, Object Pool, Target và Moves được cấu hình trong Window > Game Match 3 > Level Editor. " +
                 "Góc trái dưới được để trống cho booster tương lai. " +
                 "Các tile con được tạo tự động và không lưu vào scene.",

@@ -26,12 +26,16 @@ namespace GameMatch3.Gameplay.Board
         private BoardController board;
         private LevelCatalog catalog;
         private Canvas menuCanvas;
+        private Canvas gameplayCanvas;
+        private RectTransform gameplayRoot;
+        private GameObject gameplaySettingsShade;
         private RectTransform portraitFrame;
         private RectTransform screenRoot;
         private LevelData selectedClassicLevel;
         private LevelData playingLevel;
         private LevelMode playingMode;
         private Coroutine returnRoutine;
+        private float timeScaleBeforePause = 1f;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void CreateMenuFlow()
@@ -62,6 +66,7 @@ namespace GameMatch3.Gameplay.Board
             board.gameObject.SetActive(false);
             EnsureEventSystem();
             BuildCanvas();
+            BuildGameplayCanvas();
             ShowModeSelection();
         }
 
@@ -78,6 +83,7 @@ namespace GameMatch3.Gameplay.Board
 
         private void OnDestroy()
         {
+            ResumeGameplayTime();
             if (board != null)
             {
                 board.LevelFinished -= OnLevelFinished;
@@ -114,6 +120,129 @@ namespace GameMatch3.Gameplay.Board
             screenRoot = CreateRect("Screen", portraitFrame);
             Stretch(screenRoot);
             LateUpdate();
+        }
+
+        private void BuildGameplayCanvas()
+        {
+            GameObject canvasObject = new GameObject(
+                "GameplayMenuCanvas",
+                typeof(RectTransform),
+                typeof(Canvas),
+                typeof(CanvasScaler),
+                typeof(GraphicRaycaster));
+            canvasObject.transform.SetParent(transform, false);
+            gameplayCanvas = canvasObject.GetComponent<Canvas>();
+            gameplayCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            gameplayCanvas.sortingOrder = 600;
+
+            CanvasScaler scaler = canvasObject.GetComponent<CanvasScaler>();
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1920f, 1080f);
+            scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
+            scaler.matchWidthOrHeight = 0.5f;
+
+            gameplayRoot = CreateRect("GameplayMenuRoot", canvasObject.transform);
+            Stretch(gameplayRoot);
+
+            Button settingsButton = CreateButton(
+                "GameplaySettingsButton",
+                gameplayRoot,
+                "SETTINGS",
+                Vector2.zero,
+                new Vector2(230f, 86f),
+                new Color(0.20f, 0.52f, 0.76f, 0.96f),
+                ShowGameplaySettings,
+                29);
+            RectTransform buttonRect = settingsButton.GetComponent<RectTransform>();
+            buttonRect.anchorMin = buttonRect.anchorMax = new Vector2(1f, 1f);
+            buttonRect.pivot = new Vector2(1f, 1f);
+            buttonRect.anchoredPosition = new Vector2(-28f, -28f);
+
+            gameplayCanvas.gameObject.SetActive(false);
+        }
+
+        private void ShowGameplaySettings()
+        {
+            if (gameplaySettingsShade != null || board == null || board.IsLevelFinished)
+            {
+                return;
+            }
+
+            timeScaleBeforePause = Time.timeScale;
+            Time.timeScale = 0f;
+
+            Image shade = CreateImage("GameplaySettingsShade", gameplayRoot, new Color(0.03f, 0.05f, 0.10f, 0.76f));
+            Stretch(shade.rectTransform);
+            gameplaySettingsShade = shade.gameObject;
+
+            Image panel = CreateImageAt(
+                "GameplaySettingsPanel",
+                shade.transform,
+                new Color(0.94f, 0.96f, 0.90f, 1f),
+                Vector2.zero,
+                new Vector2(650f, 650f));
+            CreateText("PauseTitle", panel.transform, "PAUSED", 64, new Color(0.13f, 0.31f, 0.42f),
+                new Vector2(0f, 245f), new Vector2(520f, 90f));
+
+            CreateButton("ContinueButton", panel.transform, "CONTINUE", new Vector2(0f, 105f),
+                new Vector2(500f, 110f), new Color(0.26f, 0.69f, 0.39f), CloseGameplaySettings, 38);
+            CreateButton("ReplayButton", panel.transform, "REPLAY", new Vector2(0f, -45f),
+                new Vector2(500f, 110f), new Color(0.23f, 0.58f, 0.83f), ReplayCurrentLevel, 38);
+            CreateButton("ExitLevelButton", panel.transform, "EXIT LEVEL", new Vector2(0f, -195f),
+                new Vector2(500f, 110f), new Color(0.91f, 0.38f, 0.24f), ExitCurrentLevel, 38);
+        }
+
+        private void CloseGameplaySettings()
+        {
+            ResumeGameplayTime();
+            if (gameplaySettingsShade != null)
+            {
+                Destroy(gameplaySettingsShade);
+                gameplaySettingsShade = null;
+            }
+        }
+
+        private void ReplayCurrentLevel()
+        {
+            CloseGameplaySettings();
+            if (board == null || playingLevel == null)
+            {
+                return;
+            }
+
+            board.gameObject.SetActive(false);
+            board.SetLevelData(playingLevel);
+            board.gameObject.SetActive(true);
+        }
+
+        private void ExitCurrentLevel()
+        {
+            CloseGameplaySettings();
+            if (returnRoutine != null)
+            {
+                StopCoroutine(returnRoutine);
+                returnRoutine = null;
+            }
+
+            board.gameObject.SetActive(false);
+            gameplayCanvas.gameObject.SetActive(false);
+            menuCanvas.gameObject.SetActive(true);
+            if (playingMode == LevelMode.Classic)
+            {
+                ShowClassic();
+            }
+            else
+            {
+                ShowPve();
+            }
+        }
+
+        private void ResumeGameplayTime()
+        {
+            if (Time.timeScale == 0f)
+            {
+                Time.timeScale = Mathf.Max(0.01f, timeScaleBeforePause);
+            }
         }
 
         private void ShowModeSelection()
@@ -407,12 +536,15 @@ namespace GameMatch3.Gameplay.Board
             playingMode = mode;
             playingLevel = level;
             menuCanvas.gameObject.SetActive(false);
+            gameplayCanvas.gameObject.SetActive(true);
             board.SetLevelData(level);
             board.gameObject.SetActive(true);
         }
 
         private void OnLevelFinished(LevelResult result)
         {
+            CloseGameplaySettings();
+            gameplayCanvas.gameObject.SetActive(false);
             if (result == LevelResult.Won)
             {
                 IReadOnlyList<LevelData> levels = GetLevels(playingMode);
