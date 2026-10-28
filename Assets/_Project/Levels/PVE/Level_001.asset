@@ -15,27 +15,27 @@ MonoBehaviour:
   mode: 1
   levelNumber: 1
   boardWidth: 6
-  boardHeight: 8
+  boardHeight: 7
   objects:
   - typeId: 1
-    spawnWeight: 1
+    spawnWeight: 24
   - typeId: 2
-    spawnWeight: 1
+    spawnWeight: 22
   - typeId: 3
-    spawnWeight: 1
+    spawnWeight: 20
   - typeId: 4
-    spawnWeight: 1
+    spawnWeight: 18
   - typeId: 5
-    spawnWeight: 1
+    spawnWeight: 16
   startingMoves: 18
   targetScore: 4000
-  playerMaxHealth: 1000
-  botMaxHealth: 1000
-  scoreToDamageMultiplier: 1
+  playerMaxHealth: 1200
+  botMaxHealth: 800
+  scoreToDamageMultiplier: 1.1
   botSettings:
     difficulty: 1
-    thinkingTimeMin: 1
-    thinkingTimeMax: 5
+    thinkingTimeMin: 1.2
+    thinkingTimeMax: 2.5
     moveTieBreak: 0
   playerRefillDirection: 0
   botRefillDirection: 1
