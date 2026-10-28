@@ -23,7 +23,8 @@ namespace GameMatch3.Gameplay.Board
         public float SelectedBounce => Mathf.Clamp(selectedBounce, 0f, 0.3f);
     }
 
-    // Displays a tile and owns its lightweight presentation animations.
+    // Displays a static 2D zodiac tile. Board movement remains in BoardController,
+    // while character idle/blink/VFX animation is intentionally disabled.
     [ExecuteAlways, RequireComponent(typeof(SpriteRenderer))]
     public sealed class TileView : MonoBehaviour
     {
@@ -33,12 +34,8 @@ namespace GameMatch3.Gameplay.Board
         private Sprite normalFallbackSprite;
         private Sprite specialFallbackSprite;
         private Sprite normalSprite;
-        private Sprite blinkSprite;
         private TilePoolEntry currentDefinition;
         private TileAnimationConfig animationConfig;
-        private float idlePhase;
-        private float nextBlinkTime;
-        private float blinkEndTime;
         private float selectedEndTime;
         private float visualFitScale = 1f;
         private bool destroying;
@@ -63,8 +60,6 @@ namespace GameMatch3.Gameplay.Board
             currentDefinition = definition;
             CreateVisualHierarchy();
             ApplyDefinition(definition, fallbackSprite);
-            idlePhase = tile.InstanceId * 0.73f;
-            ScheduleNextBlink();
             UpdateObjectName();
         }
 
@@ -75,7 +70,6 @@ namespace GameMatch3.Gameplay.Board
             currentDefinition = definition;
             destroying = false;
             ApplyCurrentVisual();
-            ScheduleNextBlink();
             UpdateObjectName();
         }
 
@@ -110,10 +104,8 @@ namespace GameMatch3.Gameplay.Board
 
             destroying = true;
             float progress = Mathf.Clamp01(normalizedProgress);
-            float squash = 1f + Mathf.Sin(progress * Mathf.PI) * 0.16f;
-            visualRoot.localScale = new Vector3(squash, 2f - squash, 1f)
-                * visualFitScale;
-            Color color = Color.Lerp(Color.white, new Color(1f, 0.75f, 0.25f, 0f), progress);
+            visualRoot.localScale = Vector3.one * visualFitScale;
+            Color color = new Color(1f, 1f, 1f, 1f - progress);
             spriteRenderer.color = color;
             if (overlayRenderer != null)
             {
@@ -141,17 +133,10 @@ namespace GameMatch3.Gameplay.Board
                 return;
             }
 
-            float idleScale = 1f + Mathf.Sin(
-                Time.time * animationConfig.IdleBounceSpeed + idlePhase)
-                * animationConfig.IdleBounceAmplitude;
-
-            float selectedScale = 0f;
             if (Time.time < selectedEndTime)
             {
                 float remaining = selectedEndTime - Time.time;
                 float progress = 1f - remaining / animationConfig.SelectedDuration;
-                selectedScale = Mathf.Sin(Mathf.Clamp01(progress) * Mathf.PI)
-                    * animationConfig.SelectedBounce;
                 spriteRenderer.color = Color.Lerp(
                     Color.white,
                     new Color(1f, 0.93f, 0.45f, 1f),
@@ -162,9 +147,7 @@ namespace GameMatch3.Gameplay.Board
                 spriteRenderer.color = Color.white;
             }
 
-            visualRoot.localScale = Vector3.one
-                * (visualFitScale * (idleScale + selectedScale));
-            UpdateBlink();
+            visualRoot.localScale = Vector3.one * visualFitScale;
         }
 
         private void RefreshArtIfAvailable()
@@ -245,7 +228,6 @@ namespace GameMatch3.Gameplay.Board
         private void ApplyDefinition(TilePoolEntry definition, Sprite fallbackSprite)
         {
             normalSprite = definition.Sprite != null ? definition.Sprite : fallbackSprite;
-            blinkSprite = definition.IdleBlinkSprite;
             bool usesPrototypeVisual = definition.Sprite == null;
             spriteRenderer.sprite = normalSprite;
             spriteRenderer.color = usesPrototypeVisual ? definition.PrototypeColor : Color.white;
@@ -268,48 +250,6 @@ namespace GameMatch3.Gameplay.Board
             Vector2 spriteSize = sprite.bounds.size;
             float largestSide = Mathf.Max(spriteSize.x, spriteSize.y);
             return largestSide > 0.0001f ? 1f / largestSide : 1f;
-        }
-
-        private void UpdateBlink()
-        {
-            if (blinkSprite == null || Time.time < selectedEndTime)
-            {
-                spriteRenderer.sprite = normalSprite;
-                return;
-            }
-
-            if (blinkEndTime > 0f)
-            {
-                if (Time.time < blinkEndTime)
-                {
-                    spriteRenderer.sprite = blinkSprite;
-                    return;
-                }
-
-                blinkEndTime = 0f;
-                spriteRenderer.sprite = normalSprite;
-                ScheduleNextBlink();
-                return;
-            }
-
-            if (Time.time >= nextBlinkTime)
-            {
-                blinkEndTime = Time.time + animationConfig.BlinkDuration;
-                spriteRenderer.sprite = blinkSprite;
-            }
-        }
-
-        private void ScheduleNextBlink()
-        {
-            if (!Application.isPlaying)
-            {
-                return;
-            }
-
-            nextBlinkTime = Time.time + UnityEngine.Random.Range(
-                animationConfig.BlinkIntervalMin,
-                animationConfig.BlinkIntervalMax);
-            blinkEndTime = 0f;
         }
 
         private void UpdateObjectName()

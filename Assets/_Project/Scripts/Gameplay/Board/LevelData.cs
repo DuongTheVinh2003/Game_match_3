@@ -129,8 +129,8 @@ namespace GameMatch3.Gameplay.Board
                 DefaultPveHealth,
                 1f,
                 PveBotDifficulty.FirstValidMove,
-                0.5f,
-                1.2f,
+                1f,
+                5f,
                 PveMoveTieBreak.RandomAmongBest,
                 PveRefillDirection.FromTop,
                 PveRefillDirection.FromBottom);

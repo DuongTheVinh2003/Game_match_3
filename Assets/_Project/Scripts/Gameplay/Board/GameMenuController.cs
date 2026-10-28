@@ -14,14 +14,14 @@ namespace GameMatch3.Gameplay.Board
         private const float ReferenceHeight = 1920f;
         private const string CatalogResourcePath = "LevelCatalog";
 
-        private static readonly Color SideColor = new Color(0.055f, 0.075f, 0.12f);
-        private static readonly Color MenuColor = new Color(0.18f, 0.56f, 0.78f);
-        private static readonly Color ClassicColor = new Color(0.15f, 0.50f, 0.72f);
-        private static readonly Color PveColor = new Color(0.36f, 0.68f, 0.28f);
-        private static readonly Color CompletedColor = new Color(0.20f, 0.72f, 0.30f);
-        private static readonly Color CurrentColor = new Color(0.10f, 0.58f, 0.92f);
-        private static readonly Color LockedColor = new Color(0.42f, 0.45f, 0.50f);
-        private static readonly Color AccentColor = new Color(1f, 0.76f, 0.16f);
+        private static readonly Color SideColor = new Color(0.035f, 0.12f, 0.22f);
+        private static readonly Color MenuColor = new Color(0.16f, 0.62f, 0.90f, 0.18f);
+        private static readonly Color ClassicColor = new Color(0.18f, 0.68f, 0.34f, 0.15f);
+        private static readonly Color PveColor = new Color(0.10f, 0.50f, 0.88f, 0.16f);
+        private static readonly Color CompletedColor = PuzzleUiTheme.Green;
+        private static readonly Color CurrentColor = PuzzleUiTheme.Blue;
+        private static readonly Color LockedColor = PuzzleUiTheme.Locked;
+        private static readonly Color AccentColor = PuzzleUiTheme.Yellow;
 
         private BoardController board;
         private LevelCatalog catalog;
@@ -111,6 +111,13 @@ namespace GameMatch3.Gameplay.Board
             sideBackground.raycastTarget = false;
 
             Image frame = CreateImage("PortraitFrame", canvasObject.transform, MenuColor);
+            Sprite gardenBackground = Resources.Load<Sprite>("UI/ZodiacGardenBackground");
+            if (gardenBackground != null)
+            {
+                frame.sprite = gardenBackground;
+                frame.preserveAspect = false;
+                frame.color = Color.white;
+            }
             portraitFrame = frame.rectTransform;
             portraitFrame.anchorMin = portraitFrame.anchorMax = new Vector2(0.5f, 0.5f);
             portraitFrame.pivot = new Vector2(0.5f, 0.5f);
@@ -149,14 +156,15 @@ namespace GameMatch3.Gameplay.Board
                 gameplayRoot,
                 "SETTINGS",
                 Vector2.zero,
-                new Vector2(230f, 86f),
+                new Vector2(170f, 70f),
                 new Color(0.20f, 0.52f, 0.76f, 0.96f),
                 ShowGameplaySettings,
-                29);
+                24);
             RectTransform buttonRect = settingsButton.GetComponent<RectTransform>();
             buttonRect.anchorMin = buttonRect.anchorMax = new Vector2(1f, 1f);
             buttonRect.pivot = new Vector2(1f, 1f);
-            buttonRect.anchoredPosition = new Vector2(-28f, -28f);
+            // Đặt dưới HUD gameplay để không che thanh HP/Target ở góc phải.
+            buttonRect.anchoredPosition = new Vector2(-28f, -196f);
 
             gameplayCanvas.gameObject.SetActive(false);
         }
@@ -200,6 +208,42 @@ namespace GameMatch3.Gameplay.Board
                 Destroy(gameplaySettingsShade);
                 gameplaySettingsShade = null;
             }
+        }
+
+        private void ShowLevelResult(LevelResult result)
+        {
+            gameplayCanvas.gameObject.SetActive(true);
+            Image shade = CreateImage("LevelResultShade", gameplayRoot, new Color(0.03f, 0.08f, 0.15f, 0.72f));
+            Stretch(shade.rectTransform);
+            gameplaySettingsShade = shade.gameObject;
+
+            bool won = result == LevelResult.Won;
+            Image panel = CreateImageAt(
+                "LevelResultPanel",
+                shade.transform,
+                PuzzleUiTheme.Cream,
+                Vector2.zero,
+                new Vector2(720f, 600f));
+            CreateText(
+                "ResultTitle",
+                panel.transform,
+                won ? "LEVEL COMPLETE" : "TRY AGAIN",
+                58,
+                won ? PuzzleUiTheme.Green : PuzzleUiTheme.Coral,
+                new Vector2(0f, 205f),
+                new Vector2(620f, 100f));
+            CreateText(
+                "ResultMessage",
+                panel.transform,
+                won ? "GREAT PUZZLE!" : "YOU ARE ALMOST THERE!",
+                28,
+                PuzzleUiTheme.Navy,
+                new Vector2(0f, 95f),
+                new Vector2(600f, 70f));
+            CreateButton("ResultReplay", panel.transform, "REPLAY", new Vector2(0f, -55f),
+                new Vector2(520f, 110f), PuzzleUiTheme.Blue, ReplayCurrentLevel, 38);
+            CreateButton("ResultExit", panel.transform, "LEVEL SELECT", new Vector2(0f, -195f),
+                new Vector2(520f, 110f), PuzzleUiTheme.Coral, ExitCurrentLevel, 34);
         }
 
         private void ReplayCurrentLevel()
@@ -248,48 +292,68 @@ namespace GameMatch3.Gameplay.Board
         private void ShowModeSelection()
         {
             ClearScreen(MenuColor);
+            Image titlePanel = CreateImageAt(
+                "TitlePanel",
+                screenRoot,
+                PuzzleUiTheme.Cream,
+                new Vector2(0f, 500f),
+                new Vector2(760f, 340f));
             CreateText(
                 "Title",
-                screenRoot,
-                "Game match-3",
-                86,
-                Color.white,
-                new Vector2(0f, 470f),
-                new Vector2(760f, 180f));
+                titlePanel.transform,
+                "ZODIAC\nMATCH 3",
+                78,
+                PuzzleUiTheme.Navy,
+                new Vector2(0f, -10f),
+                new Vector2(680f, 230f));
+
+            CreateZodiacIcon("TigerMascot", "Zodiac/Tiger/Tiger_Normal", screenRoot,
+                new Vector2(-245f, 690f), 185f);
+            CreateZodiacIcon("DragonMascot", "Zodiac/Dragon/Dragon_Normal", screenRoot,
+                new Vector2(-80f, 735f), 175f);
+            CreateZodiacIcon("PigMascot", "Zodiac/Pig/Pig_Normal", screenRoot,
+                new Vector2(90f, 735f), 175f);
+            CreateZodiacIcon("CatMascot", "Zodiac/Cat/Cat_Normal", screenRoot,
+                new Vector2(250f, 690f), 185f);
+
+            CreateButton("MainSettings", screenRoot, "SETTINGS", new Vector2(330f, 850f),
+                new Vector2(190f, 100f), PuzzleUiTheme.Blue, ShowSettings, 25);
             CreateText(
                 "Subtitle",
                 screenRoot,
                 "CHOOSE GAME MODE",
-                30,
-                new Color(0.88f, 0.95f, 1f),
-                new Vector2(0f, 320f),
-                new Vector2(600f, 70f));
+                34,
+                PuzzleUiTheme.Navy,
+                new Vector2(0f, 250f),
+                new Vector2(650f, 80f));
 
             CreateButton(
                 "ClassicButton",
                 screenRoot,
-                "CLASSIC",
-                new Vector2(0f, 80f),
-                new Vector2(650f, 170f),
-                new Color(0.30f, 0.78f, 0.28f),
-                ShowClassic);
+                "CLASSIC\nRELAX & SOLVE",
+                new Vector2(0f, 30f),
+                new Vector2(690f, 230f),
+                PuzzleUiTheme.Green,
+                ShowClassic,
+                43);
             CreateButton(
                 "PveButton",
                 screenRoot,
-                "PVE",
-                new Vector2(0f, -150f),
-                new Vector2(650f, 170f),
-                new Color(0.12f, 0.65f, 0.92f),
-                ShowPve);
+                "PVE\nBATTLE THE BOT",
+                new Vector2(0f, -255f),
+                new Vector2(690f, 230f),
+                PuzzleUiTheme.Blue,
+                ShowPve,
+                43);
 
             CreateText(
-                "PrototypeNote",
+                "VersionNote",
                 screenRoot,
-                "PROTOTYPE UI",
+                "ZODIAC GARDEN PUZZLE",
                 24,
-                new Color(1f, 1f, 1f, 0.55f),
-                new Vector2(0f, -780f),
-                new Vector2(400f, 60f));
+                new Color(PuzzleUiTheme.Navy.r, PuzzleUiTheme.Navy.g, PuzzleUiTheme.Navy.b, 0.72f),
+                new Vector2(0f, -820f),
+                new Vector2(600f, 60f));
         }
 
         private void ShowClassic()
@@ -303,11 +367,11 @@ namespace GameMatch3.Gameplay.Board
             CreateText(
                 "Instruction",
                 screenRoot,
-                "SELECT A LEVEL, THEN PRESS PLAY",
-                26,
-                new Color(0.9f, 0.96f, 1f),
+                "SELECT A LEVEL",
+                32,
+                PuzzleUiTheme.Navy,
                 new Vector2(0f, 690f),
-                new Vector2(720f, 60f));
+                new Vector2(720f, 70f));
 
             if (levels.Count == 0)
             {
@@ -329,7 +393,7 @@ namespace GameMatch3.Gameplay.Board
             {
                 LevelData level = levels[index];
                 int slot = index - startIndex;
-                float y = -300f + slot * 300f;
+                float y = 390f - slot * 310f;
                 LevelState state = GetState(index, completedCount);
                 bool selected = level == selectedClassicLevel;
                 Color color = GetStateColor(state);
@@ -340,7 +404,7 @@ namespace GameMatch3.Gameplay.Board
                         screenRoot,
                         AccentColor,
                         new Vector2(0f, y),
-                        new Vector2(310f, 230f));
+                        new Vector2(690f, 250f));
                 }
 
                 Button button = CreateButton(
@@ -348,7 +412,7 @@ namespace GameMatch3.Gameplay.Board
                     screenRoot,
                     BuildLevelLabel(level, state),
                     new Vector2(0f, y),
-                    new Vector2(280f, 200f),
+                    new Vector2(650f, 220f),
                     color,
                     () =>
                     {
@@ -366,10 +430,11 @@ namespace GameMatch3.Gameplay.Board
                 screenRoot,
                 "PLAY",
                 new Vector2(0f, -650f),
-                new Vector2(560f, 170f),
-                canPlay ? new Color(0.38f, 0.85f, 0.16f) : LockedColor,
+                new Vector2(600f, 160f),
+                canPlay ? PuzzleUiTheme.Yellow : LockedColor,
                 () => StartLevel(LevelMode.Classic, selectedClassicLevel),
-                66);
+                62,
+                PuzzleUiTheme.Navy);
             play.interactable = canPlay;
             CreateClassicNavigation();
         }
@@ -381,6 +446,8 @@ namespace GameMatch3.Gameplay.Board
             int completedCount = Progress.GetCompletedCount(LevelMode.Pve, levels.Count);
 
             CreateHeader("PVE", ShowSettings);
+            CreateText("PveInstruction", screenRoot, "CHOOSE YOUR OPPONENT", 30,
+                PuzzleUiTheme.Navy, new Vector2(0f, 690f), new Vector2(720f, 70f));
             if (levels.Count == 0)
             {
                 CreateEmptyMessage("No PVE levels.\nCreate one in Level Editor.");
@@ -390,10 +457,11 @@ namespace GameMatch3.Gameplay.Board
             RectTransform viewport = CreateRect("MapViewport", screenRoot);
             viewport.anchorMin = new Vector2(0f, 0f);
             viewport.anchorMax = new Vector2(1f, 1f);
-            viewport.offsetMin = new Vector2(40f, 50f);
-            viewport.offsetMax = new Vector2(-40f, -230f);
+            viewport.offsetMin = new Vector2(48f, 80f);
+            viewport.offsetMax = new Vector2(-48f, -310f);
             Image viewportImage = viewport.gameObject.AddComponent<Image>();
-            viewportImage.color = new Color(0.20f, 0.52f, 0.23f, 0.35f);
+            viewportImage.color = new Color(1f, 0.97f, 0.86f, 0.58f);
+            PuzzleUiTheme.ApplyRounded(viewportImage);
             viewport.gameObject.AddComponent<RectMask2D>();
             ScrollRect scroll = viewport.gameObject.AddComponent<ScrollRect>();
             scroll.horizontal = false;
@@ -427,7 +495,7 @@ namespace GameMatch3.Gameplay.Board
                     content,
                     BuildLevelLabel(level, state),
                     position,
-                    new Vector2(190f, 150f),
+                    new Vector2(360f, 170f),
                     GetStateColor(state),
                     () => StartLevel(LevelMode.Pve, level),
                     42);
@@ -508,22 +576,21 @@ namespace GameMatch3.Gameplay.Board
 
         private void CreateHeader(string title, UnityEngine.Events.UnityAction settingsAction)
         {
-            CreateText("ModeTitle", screenRoot, title, 64, Color.white,
-                new Vector2(0f, 820f), new Vector2(520f, 100f));
-            CreateButton("SettingsButton", screenRoot, "SETTINGS", new Vector2(-315f, 820f),
-                new Vector2(180f, 110f), new Color(0.95f, 0.95f, 0.95f), settingsAction, 25, new Color(0.18f, 0.25f, 0.32f));
+            Image header = CreateImageAt("ModeHeader", screenRoot, PuzzleUiTheme.Cream,
+                new Vector2(0f, 820f), new Vector2(500f, 130f));
+            CreateText("ModeTitle", header.transform, title, 62, PuzzleUiTheme.Navy,
+                Vector2.zero, new Vector2(450f, 100f));
+            CreateButton("BackButton", screenRoot, "<", new Vector2(-345f, 820f),
+                new Vector2(120f, 110f), PuzzleUiTheme.Cream, ShowModeSelection, 54, PuzzleUiTheme.Blue);
+            CreateButton("SettingsButton", screenRoot, "SET", new Vector2(345f, 820f),
+                new Vector2(120f, 110f), PuzzleUiTheme.Blue, settingsAction, 28);
         }
 
         private void CreateClassicNavigation()
         {
-            Image bar = CreateImageAt("BottomNavigation", screenRoot, new Color(0.08f, 0.34f, 0.58f),
-                new Vector2(0f, -850f), new Vector2(820f, 170f));
-            CreateButton("LeftPlaceholder", bar.transform, "COMING\nSOON", new Vector2(-270f, 0f),
-                new Vector2(250f, 140f), new Color(0.14f, 0.43f, 0.68f), null, 27).interactable = false;
-            CreateButton("ClassicTab", bar.transform, "CLASSIC", Vector2.zero,
-                new Vector2(250f, 140f), new Color(0.24f, 0.62f, 0.90f), ShowClassic, 34);
-            CreateButton("RightPlaceholder", bar.transform, "COMING\nSOON", new Vector2(270f, 0f),
-                new Vector2(250f, 140f), new Color(0.14f, 0.43f, 0.68f), null, 27).interactable = false;
+            CreateText("ClassicFooter", screenRoot, "CLASSIC JOURNEY", 22,
+                new Color(PuzzleUiTheme.Navy.r, PuzzleUiTheme.Navy.g, PuzzleUiTheme.Navy.b, 0.70f),
+                new Vector2(0f, -835f), new Vector2(500f, 50f));
         }
 
         private void StartLevel(LevelMode mode, LevelData level)
@@ -544,7 +611,6 @@ namespace GameMatch3.Gameplay.Board
         private void OnLevelFinished(LevelResult result)
         {
             CloseGameplaySettings();
-            gameplayCanvas.gameObject.SetActive(false);
             if (result == LevelResult.Won)
             {
                 IReadOnlyList<LevelData> levels = GetLevels(playingMode);
@@ -557,12 +623,7 @@ namespace GameMatch3.Gameplay.Board
                 }
             }
 
-            if (returnRoutine != null)
-            {
-                StopCoroutine(returnRoutine);
-            }
-
-            returnRoutine = StartCoroutine(ReturnToModeAfterDelay());
+            ShowLevelResult(result);
         }
 
         private IEnumerator ReturnToModeAfterDelay()
@@ -604,7 +665,21 @@ namespace GameMatch3.Gameplay.Board
                 Destroy(screenRoot.GetChild(i).gameObject);
             }
 
-            portraitFrame.GetComponent<Image>().color = color;
+            Image frame = portraitFrame.GetComponent<Image>();
+            Sprite background = Resources.Load<Sprite>("UI/ZodiacGardenBackground");
+            if (background != null)
+            {
+                frame.sprite = background;
+                frame.color = Color.white;
+            }
+            else
+            {
+                frame.color = color;
+            }
+
+            Image tint = CreateImage("ScreenTint", screenRoot, color);
+            Stretch(tint.rectTransform);
+            tint.raycastTarget = false;
         }
 
         private void CreateEmptyMessage(string message)
@@ -659,7 +734,7 @@ namespace GameMatch3.Gameplay.Board
 
         private static Vector2 GetMapPosition(int index)
         {
-            float[] xPattern = { -220f, -60f, 180f, 235f, 20f, -205f };
+            float[] xPattern = { -170f, 100f, 175f, -40f, -180f, 80f };
             return new Vector2(xPattern[index % xPattern.Length], 150f + index * 260f);
         }
 
@@ -688,6 +763,9 @@ namespace GameMatch3.Gameplay.Board
         {
             Image image = CreateImageAt(name, parent, color, position, size);
             Button button = image.gameObject.AddComponent<Button>();
+            Shadow shadow = image.gameObject.AddComponent<Shadow>();
+            shadow.effectColor = new Color(0.05f, 0.13f, 0.20f, 0.26f);
+            shadow.effectDistance = new Vector2(0f, -7f);
             button.targetGraphic = image;
             ColorBlock colors = button.colors;
             colors.highlightedColor = Color.Lerp(color, Color.white, 0.16f);
@@ -753,11 +831,33 @@ namespace GameMatch3.Gameplay.Board
             Vector2 size)
         {
             Image image = CreateImage(name, parent, color);
+            PuzzleUiTheme.ApplyRounded(image);
             RectTransform rect = image.rectTransform;
             rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
             rect.pivot = new Vector2(0.5f, 0.5f);
             rect.anchoredPosition = position;
             rect.sizeDelta = size;
+            return image;
+        }
+
+        private static Image CreateZodiacIcon(
+            string name,
+            string resourcePath,
+            Transform parent,
+            Vector2 position,
+            float size)
+        {
+            GameObject gameObject = new GameObject(name, typeof(RectTransform), typeof(Image));
+            gameObject.transform.SetParent(parent, false);
+            RectTransform rect = (RectTransform)gameObject.transform;
+            rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.anchoredPosition = position;
+            rect.sizeDelta = new Vector2(size, size);
+            Image image = gameObject.GetComponent<Image>();
+            image.sprite = Resources.Load<Sprite>(resourcePath);
+            image.preserveAspect = true;
+            image.raycastTarget = false;
             return image;
         }
 

@@ -30,8 +30,6 @@ namespace GameMatch3.Gameplay.Board
         [SerializeField, Range(0.5f, 0.98f)] private float tileScale = 0.86f;
         [SerializeField, Range(0.01f, 0.25f)] private float dragThreshold = 0.15f;
         [SerializeField, Min(0.1f)] private float cameraPadding = 0.6f;
-        [Tooltip("Khoảng trống bên trái dành cho HUD như Target, Moves và Score.")]
-        [SerializeField, Min(0f)] private float leftHudReservedWidth = 3f;
         [SerializeField] private int previewSeed = 12345;
 
         [Header("Zodiac Tile Animation")]
@@ -60,7 +58,7 @@ namespace GameMatch3.Gameplay.Board
         private readonly List<TilePoolEntry> activeTilePool =
             new List<TilePoolEntry>(ZodiacArtCatalog.ZodiacTypeCount);
         private int nextTileInstanceId;
-        private BoardHud boardHud;
+        private ResponsiveBoardHud boardHud;
         private int currentScore;
         private long scoreEarnedThisMove;
         private int remainingMoves;
@@ -70,10 +68,14 @@ namespace GameMatch3.Gameplay.Board
         private int botHealth;
         private PveTurn currentTurn;
         private PveBotController botController;
+        private SpriteRenderer sceneBackground;
 
         private const int MinimumStartingMoves = 2;
         private const int LayoutGenerationAttempts = 2048;
         private const int ExactShuffleAttempts = 4096;
+        private const float HudReferenceHeight = 182f;
+        private const float HudReferenceWidth = 1920f;
+        private const float HudReferenceScreenHeight = 1080f;
 
         public bool IsSwapping => isSwapping;
         public int Width => width;
@@ -273,6 +275,7 @@ namespace GameMatch3.Gameplay.Board
             pentagonSprite = CreatePolygonSprite(5);
             hexagonSprite = CreatePolygonSprite(6);
             ConfigureCamera();
+            CreateSceneBackground();
             CreateHud();
             CreateBoardBackground();
             PopulateBoard();
@@ -308,10 +311,16 @@ namespace GameMatch3.Gameplay.Board
             // toàn bộ HUD bị đẩy ra ngoài mép trái ở các tỉ lệ Game View khác nhau.
             hudObject.transform.SetParent(null, false);
             SetEditorPreviewFlags(hudObject);
-            boardHud = hudObject.AddComponent<BoardHud>();
+            boardHud = hudObject.AddComponent<ResponsiveBoardHud>();
             if (IsPve)
             {
-                boardHud.BuildPve(CurrentLevelNumber, playerHealth, botHealth, currentTurn);
+                boardHud.BuildPve(
+                    CurrentLevelNumber,
+                    playerHealth,
+                    levelData.PlayerMaxHealth,
+                    botHealth,
+                    levelData.BotMaxHealth,
+                    currentTurn);
             }
             else
             {
@@ -466,11 +475,49 @@ namespace GameMatch3.Gameplay.Board
                     SpriteRenderer renderer = cell.AddComponent<SpriteRenderer>();
                     renderer.sprite = squareSprite;
                     renderer.color = (x + y) % 2 == 0
-                        ? new Color(0.17f, 0.19f, 0.24f)
-                        : new Color(0.21f, 0.23f, 0.29f);
+                        ? new Color(0.91f, 0.95f, 0.91f)
+                        : new Color(0.82f, 0.91f, 0.88f);
                     renderer.sortingOrder = 0;
                 }
             }
+        }
+
+        private void CreateSceneBackground()
+        {
+            Sprite backgroundSprite = Resources.Load<Sprite>("UI/ZodiacGardenBackground");
+            if (backgroundSprite == null || boardCamera == null)
+            {
+                return;
+            }
+
+            GameObject backgroundObject = new GameObject("ZodiacGardenBackground");
+            backgroundObject.transform.SetParent(transform, false);
+            SetEditorPreviewFlags(backgroundObject);
+            sceneBackground = backgroundObject.AddComponent<SpriteRenderer>();
+            sceneBackground.sprite = backgroundSprite;
+            sceneBackground.color = new Color(1f, 1f, 1f, 0.82f);
+            sceneBackground.sortingOrder = -100;
+            FitSceneBackground();
+        }
+
+        private void FitSceneBackground()
+        {
+            if (sceneBackground == null || sceneBackground.sprite == null || boardCamera == null)
+            {
+                return;
+            }
+
+            float visibleHeight = boardCamera.orthographicSize * 2f;
+            float visibleWidth = visibleHeight * boardCamera.aspect;
+            Vector2 spriteSize = sceneBackground.sprite.bounds.size;
+            float scale = Mathf.Max(
+                visibleWidth / Mathf.Max(0.01f, spriteSize.x),
+                visibleHeight / Mathf.Max(0.01f, spriteSize.y));
+            sceneBackground.transform.position = new Vector3(
+                boardCamera.transform.position.x,
+                boardCamera.transform.position.y,
+                6f);
+            sceneBackground.transform.localScale = Vector3.one * scale;
         }
 
         private void ReadPointerInput()
@@ -1649,7 +1696,8 @@ namespace GameMatch3.Gameplay.Board
 
         private void ConfigureCamera()
         {
-            // Căn camera để đủ chiều cao board và đủ chiều rộng gồm board + khoảng HUD bên trái.
+            // HUD nằm phía trên nên camera chỉ fit board. Camera luôn nhìn đúng tâm
+            // board, không chừa khoảng giả ở bên trái trên bất kỳ mode/tỉ lệ nào.
             boardCamera = Camera.main;
             if (boardCamera == null)
             {
@@ -1660,17 +1708,26 @@ namespace GameMatch3.Gameplay.Board
 
             boardCamera.orthographic = true;
             float aspect = boardCamera.aspect > 0f ? boardCamera.aspect : 1f;
-            float verticalHalfSize = height * cellSize * 0.5f + cameraPadding;
-            float totalLayoutWidth = width * cellSize + leftHudReservedWidth + cameraPadding * 2f;
-            float horizontalHalfSize = totalLayoutWidth * 0.5f / aspect;
+            // Quy đổi chiều cao HUD sang tỉ lệ viewport theo cùng công thức scale
+            // (match 0.5) của CanvasScaler. Nhờ vậy board nằm giữa phần chơi còn lại
+            // bên dưới HUD trên cả màn hình ngang, dọc và các aspect ratio lạ.
+            float hudHeightFraction = Mathf.Clamp(
+                HudReferenceHeight * Mathf.Sqrt(
+                    aspect / (HudReferenceWidth * HudReferenceScreenHeight)),
+                0.08f,
+                0.22f);
+            float verticalHalfSize =
+                (height * cellSize * 0.5f + cameraPadding) / (1f - hudHeightFraction);
+            float horizontalHalfSize = (width * cellSize * 0.5f + cameraPadding) / aspect;
             boardCamera.orthographicSize = Mathf.Max(verticalHalfSize, horizontalHalfSize);
             boardCamera.transform.position = new Vector3(
-                transform.position.x - leftHudReservedWidth * 0.5f,
-                transform.position.y,
+                transform.position.x,
+                transform.position.y + hudHeightFraction * boardCamera.orthographicSize,
                 -10f);
-            boardCamera.backgroundColor = new Color(0.20f, 0.55f, 0.72f);
+            boardCamera.backgroundColor = new Color(0.43f, 0.79f, 0.94f);
             boardCamera.clearFlags = CameraClearFlags.SolidColor;
             lastCameraAspect = boardCamera.aspect;
+            FitSceneBackground();
         }
 
         private void ClearGeneratedBoard()

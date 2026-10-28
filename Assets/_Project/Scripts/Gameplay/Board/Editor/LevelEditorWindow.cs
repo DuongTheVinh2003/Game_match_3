@@ -1068,8 +1068,8 @@ namespace GameMatch3.Gameplay.Board.Editor
                     BotMaxHealth = LevelData.DefaultPveHealth,
                     ScoreToDamageMultiplier = 1f,
                     BotDifficulty = PveBotDifficulty.FirstValidMove,
-                    BotThinkingTimeMin = 0.5f,
-                    BotThinkingTimeMax = 1.2f,
+                    BotThinkingTimeMin = 1f,
+                    BotThinkingTimeMax = 5f,
                     BotMoveTieBreak = PveMoveTieBreak.RandomAmongBest,
                     PlayerRefillDirection = PveRefillDirection.FromTop,
                     BotRefillDirection = PveRefillDirection.FromBottom

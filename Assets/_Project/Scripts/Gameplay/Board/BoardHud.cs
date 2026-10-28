@@ -19,13 +19,13 @@ namespace GameMatch3.Gameplay.Board
         {
             ConfigureCanvas();
             Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-            Color panelColor = new Color(0.96f, 0.68f, 0.76f, 0.94f);
-            Color textColor = new Color(0.20f, 0.23f, 0.18f);
+            Color panelColor = PuzzleUiTheme.Cream;
+            Color textColor = PuzzleUiTheme.Navy;
 
             levelText = CreatePanel("Level", new Vector2(24f, -24f), new Vector2(330f, 78f), font, panelColor, textColor);
-            targetText = CreatePanel("Target", new Vector2(24f, -116f), new Vector2(330f, 96f), font, panelColor, textColor);
-            movesText = CreatePanel("Moves", new Vector2(50f, -226f), new Vector2(280f, 108f), font, panelColor, textColor);
-            scoreText = CreatePanel("Score", new Vector2(50f, -348f), new Vector2(220f, 174f), font, panelColor, textColor);
+            targetText = CreatePanel("Target", new Vector2(24f, -116f), new Vector2(330f, 104f), font, panelColor, textColor);
+            movesText = CreatePanel("Moves", new Vector2(24f, -234f), new Vector2(150f, 150f), font, PuzzleUiTheme.Yellow, textColor);
+            scoreText = CreatePanel("Score", new Vector2(188f, -234f), new Vector2(166f, 150f), font, panelColor, textColor);
 
             CreateBoosterReservedArea();
             SetLevel(levelNumber);
@@ -38,13 +38,13 @@ namespace GameMatch3.Gameplay.Board
         {
             ConfigureCanvas();
             Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-            Color panelColor = new Color(0.35f, 0.72f, 0.42f, 0.94f);
-            Color textColor = new Color(0.10f, 0.20f, 0.12f);
+            Color panelColor = PuzzleUiTheme.Cream;
+            Color textColor = PuzzleUiTheme.Navy;
 
             levelText = CreatePanel("Level", new Vector2(24f, -24f), new Vector2(330f, 78f), font, panelColor, textColor);
-            botHealthText = CreatePanel("BotHealth", new Vector2(24f, -116f), new Vector2(330f, 104f), font, panelColor, textColor);
-            playerHealthText = CreatePanel("PlayerHealth", new Vector2(24f, -234f), new Vector2(330f, 104f), font, panelColor, textColor);
-            turnText = CreatePanel("Turn", new Vector2(24f, -352f), new Vector2(330f, 104f), font, panelColor, textColor);
+            botHealthText = CreatePanel("BotHealth", new Vector2(24f, -116f), new Vector2(330f, 104f), font, new Color(1f, 0.79f, 0.74f, 0.98f), textColor);
+            playerHealthText = CreatePanel("PlayerHealth", new Vector2(24f, -234f), new Vector2(330f, 104f), font, new Color(0.78f, 0.94f, 0.72f, 0.98f), textColor);
+            turnText = CreatePanel("Turn", new Vector2(24f, -352f), new Vector2(330f, 104f), font, new Color(0.70f, 0.87f, 1f, 0.98f), textColor);
 
             CreateBoosterReservedArea();
             SetLevel(levelNumber);
@@ -163,7 +163,12 @@ namespace GameMatch3.Gameplay.Board
             panelRect.pivot = new Vector2(0f, 1f);
             panelRect.anchoredPosition = topLeftPosition;
             panelRect.sizeDelta = size;
-            panel.GetComponent<Image>().color = panelColor;
+            Image panelImage = panel.GetComponent<Image>();
+            panelImage.color = panelColor;
+            PuzzleUiTheme.ApplyRounded(panelImage);
+            Shadow shadow = panel.AddComponent<Shadow>();
+            shadow.effectColor = new Color(0.03f, 0.11f, 0.20f, 0.25f);
+            shadow.effectDistance = new Vector2(0f, -6f);
 
             GameObject textObject = new GameObject("Text", typeof(RectTransform), typeof(Text));
             textObject.transform.SetParent(panel.transform, false);

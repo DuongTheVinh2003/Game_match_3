@@ -34,8 +34,8 @@ MonoBehaviour:
   scoreToDamageMultiplier: 1
   botSettings:
     difficulty: 1
-    thinkingTimeMin: 0.5
-    thinkingTimeMax: 1.2
+    thinkingTimeMin: 1
+    thinkingTimeMax: 5
     moveTieBreak: 0
   playerRefillDirection: 0
   botRefillDirection: 1
